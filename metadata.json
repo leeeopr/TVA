@@ -1,0 +1,6 @@
+{
+  "name": "Terminal Retro de Foco e Estudos",
+  "description": "Aplicativo completo de produtividade, estudos, tarefas e pomodoro com estética CRT retro futurista monocromática âmbar.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
