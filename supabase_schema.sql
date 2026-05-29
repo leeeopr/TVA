@@ -1,14 +1,9 @@
--- ==========================================
--- TERMINAL RETRO DE FOCO E ESTUDOS - SCHEMA
--- ==========================================
--- SQL Script for database initialization in Supabase.
--- Incorporates tables, foreign keys, row level security (RLS),
--- indexes for rapid queries, and triggers for updated_at tracking.
-
--- Enable UUID generation extension
+-- =========================================================
+-- TERMINAL RETRO DE FOCO E ESTUDOS - SCHEMA COMPLETO (SUPABASE)
+-- =========================================================
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. PROFILES TABLE
+-- 1. PROFILES
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
     username TEXT,
@@ -17,7 +12,27 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- 2. POMODORO PRESETS TABLE
+-- 2. CUSTOM COLORS
+CREATE TABLE IF NOT EXISTS public.custom_colors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL UNIQUE,
+    hex_code TEXT,
+    tailwind_class TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- SEED PALETA DENTRO DE CUSTOM COLORS
+INSERT INTO public.custom_colors (name, hex_code, tailwind_class) VALUES
+('blue', '#60a5fa', 'blue'),
+('purple', '#c084fc', 'purple'),
+('green', '#34d399', 'green'),
+('red', '#f87171', 'red'),
+('yellow', '#fbbf24', 'yellow'),
+('cyan', '#22d3ee', 'cyan'),
+('orange', '#fb923c', 'orange')
+ON CONFLICT (name) DO NOTHING;
+
+-- 3. POMODORO PRESETS
 CREATE TABLE IF NOT EXISTS public.pomodoro_presets (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -29,46 +44,66 @@ CREATE TABLE IF NOT EXISTS public.pomodoro_presets (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- 3. TASK GROUPS TABLE
+-- 4. TASK GROUPS
 CREATE TABLE IF NOT EXISTS public.task_groups (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
-    color TEXT NOT NULL,
+    color_id UUID REFERENCES public.custom_colors(id) ON DELETE SET NULL,
     position INTEGER DEFAULT 0 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- 4. TASK CATEGORIES TABLE
+-- MIGRATION: Ensure correct columns are present in case the table already exists
+ALTER TABLE public.task_groups ADD COLUMN IF NOT EXISTS color_id UUID REFERENCES public.custom_colors(id) ON DELETE SET NULL;
+ALTER TABLE public.task_groups ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0 NOT NULL;
+
+-- 5. TASK CATEGORIES
 CREATE TABLE IF NOT EXISTS public.task_categories (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
     group_id UUID REFERENCES public.task_groups(id) ON DELETE CASCADE NOT NULL,
     name TEXT NOT NULL,
-    color TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
-);
-
--- 5. TASKS TABLE
-CREATE TABLE IF NOT EXISTS public.tasks (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    group_id UUID REFERENCES public.task_groups(id) ON DELETE CASCADE NOT NULL,
-    category_id UUID REFERENCES public.task_categories(id) ON DELETE SET NULL,
-    title TEXT NOT NULL,
     description TEXT,
-    due_date TIMESTAMP WITH TIME ZONE,
-    urgency_level TEXT DEFAULT 'low' CHECK (urgency_level IN ('low', 'moderate', 'urgent', 'overdue')),
-    is_completed BOOLEAN DEFAULT false NOT NULL,
-    completed_at TIMESTAMP WITH TIME ZONE,
+    color_id UUID REFERENCES public.custom_colors(id) ON DELETE SET NULL,
     position INTEGER DEFAULT 0 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- 6. POMODORO SESSIONS TABLE
+-- MIGRATION: Ensure correct columns are present in case the table already exists
+ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS color_id UUID REFERENCES public.custom_colors(id) ON DELETE SET NULL;
+ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW());
+
+-- 6. TASKS TABLE
+CREATE TABLE IF NOT EXISTS public.tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    group_id UUID REFERENCES public.task_groups(id) ON DELETE SET NULL,
+    category_id UUID REFERENCES public.task_categories(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    deadline TIMESTAMPTZ,
+    urgency TEXT CHECK (urgency IN ('low', 'moderate', 'urgent')),
+    completed BOOLEAN DEFAULT FALSE,
+    position INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc', now()),
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+-- MIGRATION: Ensure correct columns are present in case the table already exists and needs modification
+ALTER TABLE public.tasks ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE public.tasks ALTER COLUMN group_id DROP NOT NULL;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS urgency TEXT CHECK (urgency IN ('low', 'moderate', 'urgent'));
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS completed BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0;
+
+-- 7. POMODORO SESSIONS
 CREATE TABLE IF NOT EXISTS public.pomodoro_sessions (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -81,7 +116,10 @@ CREATE TABLE IF NOT EXISTS public.pomodoro_sessions (
     completed BOOLEAN DEFAULT false NOT NULL
 );
 
--- 7. DAILY STATISTICS TABLE
+-- MIGRATION: Ensure correct foreign keys on existing sessions
+ALTER TABLE public.pomodoro_sessions ADD COLUMN IF NOT EXISTS task_id UUID REFERENCES public.tasks(id) ON DELETE SET NULL;
+
+-- 8. DAILY STATISTICS
 CREATE TABLE IF NOT EXISTS public.daily_statistics (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -92,7 +130,7 @@ CREATE TABLE IF NOT EXISTS public.daily_statistics (
     UNIQUE(user_id, date)
 );
 
--- 8. SETTINGS TABLE
+-- 9. SETTINGS
 CREATE TABLE IF NOT EXISTS public.settings (
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE PRIMARY KEY,
     crt_intensity NUMERIC DEFAULT 0.8 CHECK (crt_intensity BETWEEN 0.0 AND 1.0),
@@ -104,7 +142,7 @@ CREATE TABLE IF NOT EXISTS public.settings (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- 9. ACTIVITY LOGS TABLE
+-- 10. ACTIVITY LOGS
 CREATE TABLE IF NOT EXISTS public.activity_logs (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -113,10 +151,20 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
+-- 11. DAILY EMOTION LOGS
+CREATE TABLE IF NOT EXISTS public.daily_emotion_logs (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+    emotion_type TEXT NOT NULL,
+    emotion_label_zh TEXT NOT NULL,
+    local_date DATE DEFAULT CURRENT_DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    UNIQUE (user_id, local_date)
+);
 
--- ==========================================
+-- =========================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
--- ==========================================
+-- =========================================================
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pomodoro_presets ENABLE ROW LEVEL SECURITY;
@@ -127,6 +175,7 @@ ALTER TABLE public.pomodoro_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.daily_statistics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.daily_emotion_logs ENABLE ROW LEVEL SECURITY;
 
 -- 1. Profiles Policies
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
@@ -151,43 +200,78 @@ CREATE POLICY "Users can manage their own pomodoro presets." ON public.pomodoro_
 
 -- 3. Task Groups Policies
 DROP POLICY IF EXISTS "Users can manage their own task groups." ON public.task_groups;
+DROP POLICY IF EXISTS "Users can only SELECT their own task groups" ON public.task_groups;
+DROP POLICY IF EXISTS "Users can only INSERT their own task groups" ON public.task_groups;
+DROP POLICY IF EXISTS "Users can only UPDATE their own task groups" ON public.task_groups;
+DROP POLICY IF EXISTS "Users can only DELETE their own task groups" ON public.task_groups;
 CREATE POLICY "Users can manage their own task groups." ON public.task_groups
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- 4. Task Categories Policies
 DROP POLICY IF EXISTS "Users can manage their own task categories." ON public.task_categories;
+DROP POLICY IF EXISTS "Users can only SELECT their own task categories" ON public.task_categories;
+DROP POLICY IF EXISTS "Users can only INSERT their own task categories" ON public.task_categories;
+DROP POLICY IF EXISTS "Users can only UPDATE their own task categories" ON public.task_categories;
+DROP POLICY IF EXISTS "Users can only DELETE their own task categories" ON public.task_categories;
 CREATE POLICY "Users can manage their own task categories." ON public.task_categories
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- 5. Tasks Policies
 DROP POLICY IF EXISTS "Users can manage their own tasks." ON public.tasks;
-CREATE POLICY "Users can manage their own tasks." ON public.tasks
-    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can view own tasks" ON public.tasks;
+DROP POLICY IF EXISTS "Users can insert own tasks" ON public.tasks;
+DROP POLICY IF EXISTS "Users can update own tasks" ON public.tasks;
+DROP POLICY IF EXISTS "Users can delete own tasks" ON public.tasks;
+
+CREATE POLICY "Users can view own tasks"
+ON public.tasks
+FOR SELECT
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own tasks"
+ON public.tasks
+FOR INSERT
+WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own tasks"
+ON public.tasks
+FOR UPDATE
+USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own tasks"
+ON public.tasks
+FOR DELETE
+USING (auth.uid() = user_id);
 
 -- 6. Pomodoro Sessions Policies
 DROP POLICY IF EXISTS "Users can manage their own pomodoro sessions." ON public.pomodoro_sessions;
 CREATE POLICY "Users can manage their own pomodoro sessions." ON public.pomodoro_sessions
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- 6. Daily Statistics Policies
+-- 7. Daily Statistics Policies
 DROP POLICY IF EXISTS "Users can manage their own daily statistics." ON public.daily_statistics;
 CREATE POLICY "Users can manage their own daily statistics." ON public.daily_statistics
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- 7. Settings Policies
+-- 8. Settings Policies
 DROP POLICY IF EXISTS "Users can manage their own settings." ON public.settings;
 CREATE POLICY "Users can manage their own settings." ON public.settings
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- 8. Activity Logs Policies
+-- 9. Activity Logs Policies
 DROP POLICY IF EXISTS "Users can manage their own activity logs." ON public.activity_logs;
 CREATE POLICY "Users can manage their own activity logs." ON public.activity_logs
     FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+-- 10. Daily Emotion Logs Policies
+DROP POLICY IF EXISTS "Users can manage their own daily emotion logs." ON public.daily_emotion_logs;
+CREATE POLICY "Users can manage their own daily emotion logs." ON public.daily_emotion_logs
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
--- ==========================================
+
+-- =========================================================
 -- AUTOMATIC TIMESTAMPS AND CREATION TRIGGERS
--- ==========================================
+-- =========================================================
 
 -- Function to handle updated_at
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
@@ -212,6 +296,20 @@ BEFORE UPDATE ON public.settings
 FOR EACH ROW
 EXECUTE FUNCTION public.handle_updated_at();
 
+-- Trigger for Task Groups updated_at
+DROP TRIGGER IF EXISTS set_task_groups_updated_at ON public.task_groups;
+CREATE TRIGGER set_task_groups_updated_at
+BEFORE UPDATE ON public.task_groups
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_updated_at();
+
+-- Trigger for Task Categories updated_at
+DROP TRIGGER IF EXISTS set_task_categories_updated_at ON public.task_categories;
+CREATE TRIGGER set_task_categories_updated_at
+BEFORE UPDATE ON public.task_categories
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_updated_at();
+
 -- Automatically create profiles and default settings on signup
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 DROP FUNCTION IF EXISTS public.handle_new_user();
@@ -233,7 +331,10 @@ BEGIN
         new.id,
         COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
         new.raw_user_meta_data->>'avatar_url'
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        username = EXCLUDED.username,
+        avatar_url = EXCLUDED.avatar_url;
     
     -- 2. Create Settings
     INSERT INTO public.settings (
@@ -253,7 +354,8 @@ BEGIN
         true, 
         true, 
         true
-    );
+    )
+    ON CONFLICT (user_id) DO NOTHING;
     
     -- 3. Seed focus-timer default presets
     INSERT INTO public.pomodoro_presets (
@@ -267,7 +369,8 @@ BEGIN
     VALUES 
     (new.id, 'Estudo Padrão', 25, 5, 15, 4),
     (new.id, 'Super Foco', 50, 10, 20, 3),
-    (new.id, 'Exercício', 8, 2, 5, 4);
+    (new.id, 'Exercício', 8, 2, 5, 4)
+    ON CONFLICT DO NOTHING;
 
     RETURN NEW;
 END;
@@ -279,34 +382,13 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 
--- ==========================================
+-- =========================================================
 -- INDEXES FOR PERFORMANCE OPTIMIZATION
--- ==========================================
+-- =========================================================
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id_completed ON public.tasks(user_id, is_completed);
 CREATE INDEX IF NOT EXISTS idx_task_groups_user_id ON public.task_groups(user_id);
 CREATE INDEX IF NOT EXISTS idx_task_categories_group_id ON public.task_categories(group_id);
 CREATE INDEX IF NOT EXISTS idx_pomodoro_sessions_user_id ON public.pomodoro_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_daily_stats_user_id_date ON public.daily_statistics(user_id, date);
-
--- 9. DAILY EMOTION LOGS TABLE
-DROP TABLE IF EXISTS public.daily_emotion_logs CASCADE;
-
-CREATE TABLE public.daily_emotion_logs (
-    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
-    user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-    emotion_type TEXT NOT NULL,
-    emotion_label_zh TEXT NOT NULL,
-    local_date DATE DEFAULT CURRENT_DATE NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
-    UNIQUE (user_id, local_date)
-);
-
-ALTER TABLE public.daily_emotion_logs ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "Users can manage their own daily emotion logs." ON public.daily_emotion_logs;
-CREATE POLICY "Users can manage their own daily emotion logs." ON public.daily_emotion_logs
-    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
 CREATE INDEX IF NOT EXISTS idx_emotion_user ON public.daily_emotion_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_emotion_date ON public.daily_emotion_logs(local_date);
-

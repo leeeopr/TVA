@@ -27,6 +27,7 @@ import { useProductivityStore } from '@/stores/productivityStore';
 import { useAuthStore } from '@/stores/authStore';
 import { sounds } from '@/lib/sounds';
 import { db, Task, TaskGroup, TaskCategory } from '@/lib/db';
+import { supabase } from '@/lib/supabase';
 
 const badgeColorMap: Record<string, string> = {
   blue: 'bg-blue-950/40 text-blue-300 border-blue-900/60',
@@ -102,6 +103,53 @@ export default function TasksPage() {
   const [newTaskCatId, setNewTaskCatId] = useState('');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [newTaskEstimate, setNewTaskEstimate] = useState(25);
+
+  const handleManualDbTest = async () => {
+    clickFeedback();
+    db.addLog('SYSTEM: INICIANDO TESTE MANUAL DE PERSISTÊNCIA...', 'info');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log("MANUAL TEST AUTH USER", user);
+      
+      if (!user) {
+        const errVal = "User is not authenticated (null). Can't run database write test.";
+        console.error(errVal);
+        db.addLog(`TEST_FAILED: ${errVal}`, 'error');
+        alert("Erro: Usuário não autenticado. Por favor, faça login antes de rodar o teste.");
+        return;
+      }
+
+      // 4. VALIDATE PAYLOAD & 15. TESTE MANUAL (INSERT REAL)
+      const payloadTest = {
+        user_id: user.id,
+        title: 'Teste de Persistência Manual ' + new Date().toLocaleTimeString(),
+        completed: false
+      };
+
+      console.log("TESTING PAYLOAD", payloadTest);
+
+      const { data, error, status } = await supabase
+        .from('tasks')
+        .insert(payloadTest)
+        .select();
+
+      console.log("TEST INSERT DATA", data);
+      console.log("TEST INSERT ERROR", error);
+      console.log("TEST INSERT STATUS", status);
+
+      if (error) {
+        db.addLog(`TEST_FAILED: STATUS ${status} - ${error.message}`, 'error');
+        alert(`Erro na inserção: ${error.message} (Status: ${status})`);
+      } else {
+        db.addLog('TEST_SUCCESS: Real-time sync injected new row to postgres bin.', 'success');
+        refreshData();
+        alert('Teste concluído com Sucesso! Registro inserido e selecionado no Supabase.');
+      }
+    } catch (err: any) {
+      console.error("TEST EXCEPTION", err);
+      db.addLog(`TEST_EXCEPTION: ${err.message || err}`, 'error');
+    }
+  };
 
   const loadDbExtras = React.useCallback(() => {
     const handle = setTimeout(() => {
@@ -620,6 +668,18 @@ export default function TasksPage() {
               <p>• <span className="text-[#33ff33]/90 font-bold">PRAZO ENTRE 4 - 5 DIAS</span>: Urgência &quot;MODERATE&quot;</p>
               <p>• <span className="text-blue-400 font-bold">PRAZO &gt;= 6 DIAS OU SEM DATA</span>: Urgência &quot;LOW&quot;</p>
             </div>
+          </div>
+
+          <div className={`border-2 p-4 rounded-xl text-xs font-mono select-none ${bgStyle} ${borderStyle}`}>
+            <span className={`${textStyle} block font-bold mb-2`}>{"// DIAGNÓSTICO DE PERSISTÊNCIA"}</span>
+            <p className="text-[10px] opacity-80 leading-relaxed mb-3">Rode um teste de gravação direta para validar latência, credenciais e políticas de RLS no Supabase PostgreSQL.</p>
+            <button
+              type="button"
+              onClick={handleManualDbTest}
+              className="w-full py-2 border border-dashed border-[var(--color-amber)]/60 hover:bg-[var(--color-amber)]/10 hover:border-solid text-xxs uppercase rounded font-bold text-[var(--color-amber)] transition-all cursor-pointer"
+            >
+              [ Executar Teste Supabase ]
+            </button>
           </div>
         </div>
 

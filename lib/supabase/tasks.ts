@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 
-// Types exactly matching Supabase schema definitions
+// Types exactly matching Supabase schema definitions and keeping UI compatibility
 export interface TaskGroup {
   id: string;
   user_id: string;
@@ -28,14 +28,19 @@ export interface Task {
   category_id: string | null;
   title: string;
   description: string | null;
-  due_date: string | null;
-  urgency_level: 'low' | 'moderate' | 'urgent' | 'overdue';
-  is_completed: boolean;
+  due_date: string | null; // UI mapping
+  urgency_level: 'low' | 'moderate' | 'urgent' | 'overdue'; // UI mapping
+  is_completed: boolean; // UI mapping
   completed_at: string | null;
   position: number;
   created_at: string;
   updated_at: string;
   
+  // Database native mappings
+  deadline?: string | null;
+  urgency?: 'low' | 'moderate' | 'urgent';
+  completed?: boolean;
+
   // Dynamic joins/resolved for UI mapping:
   group_name?: string;
   group_color?: string;
@@ -55,46 +60,43 @@ const generateUUID = (): string => {
 
 const getCurrentUserId = async (passedId?: string): Promise<string> => {
   if (passedId) return passedId;
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
     throw new Error('Usuário autenticado inválido ou nulo');
   }
-  return session.user.id;
+  return user.id;
 };
+
+// Map database format to TS UI Task type
+export function mapTaskFromDb(t: any): Task {
+  if (!t) return t;
+  const deadlineVal = t.deadline ?? t.due_date ?? null;
+  const completedVal = t.completed ?? t.is_completed ?? false;
+  const urgencyVal = t.urgency ?? t.urgency_level ?? 'low';
+
+  return {
+    id: t.id,
+    user_id: t.user_id,
+    group_id: t.group_id,
+    category_id: t.category_id,
+    title: t.title,
+    description: t.description ?? null,
+    due_date: deadlineVal,
+    urgency_level: urgencyVal === 'overdue' ? 'urgent' : urgencyVal,
+    is_completed: completedVal,
+    completed_at: t.completed_at ?? (completedVal ? t.updated_at || new Date().toISOString() : null),
+    position: t.position ?? 0,
+    created_at: t.created_at,
+    updated_at: t.updated_at,
+    deadline: deadlineVal,
+    urgency: urgencyVal === 'overdue' ? 'urgent' : urgencyVal,
+    completed: completedVal
+  };
+}
 
 // ==========================================
 // TASKS CRUD & DB SYNC SERVICES
 // ==========================================
-
-export async function getTaskGroups(userId?: string): Promise<TaskGroup[]> {
-  const uid = await getCurrentUserId(userId);
-  const { data, error } = await supabase
-    .from('task_groups')
-    .select('*')
-    .eq('user_id', uid)
-    .order('position', { ascending: true });
-
-  if (error) {
-    console.error('getTaskGroups Error:', error);
-    throw error;
-  }
-  return data || [];
-}
-
-export async function getCategories(userId?: string): Promise<TaskCategory[]> {
-  const uid = await getCurrentUserId(userId);
-  const { data, error } = await supabase
-    .from('task_categories')
-    .select('*')
-    .eq('user_id', uid)
-    .order('created_at', { ascending: true });
-
-  if (error) {
-    console.error('getCategories Error:', error);
-    throw error;
-  }
-  return data || [];
-}
 
 export async function getTasks(userId?: string): Promise<Task[]> {
   const uid = await getCurrentUserId(userId);
@@ -108,41 +110,85 @@ export async function getTasks(userId?: string): Promise<Task[]> {
     console.error('getTasks Error:', error);
     throw error;
   }
-  return data || [];
+  return (data || []).map(mapTaskFromDb);
 }
 
 export async function createTask(task: Partial<Task>, userId?: string): Promise<Task> {
-  const uid = await getCurrentUserId(userId);
+  // 2. VALIDAR AUTH
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  // 3. LOGS OBRIGATÓRIOS (AUTH USER)
+  console.log("AUTH USER", user);
+
+  if (!user) {
+    const errorMsg = 'Usuário nulo ou sessão inválida. Impossível criar a tarefa.';
+    console.error("SUPABASE ERROR", errorMsg);
+    throw new Error(errorMsg);
+  }
+
   const taskId = task.id || generateUUID();
   const position = task.position !== undefined ? task.position : 0;
+  
+  const rawDeadline = task.due_date || task.deadline || null;
+  const rawUrgency = task.urgency_level || task.urgency || 'low';
+  const mappedUrgency = rawUrgency === 'overdue' ? 'urgent' : rawUrgency;
+  const rawCompleted = task.is_completed || task.completed || false;
 
+  // 4. VALIDAR PAYLOAD
+  // Toda task deve enviar: user_id, title, description, deadline, urgency, category_id, group_id, completed
   const payload = {
-    ...task,
     id: taskId,
-    user_id: uid,
-    position,
-    is_completed: task.is_completed || false,
-    completed_at: task.is_completed ? new Date().toISOString() : null,
+    user_id: user.id,
+    title: task.title || 'Sem título',
+    description: task.description || null,
+    deadline: rawDeadline,
+    urgency: mappedUrgency,
+    category_id: task.category_id || null,
+    group_id: task.group_id || null,
+    completed: rawCompleted,
+    position: position
   };
 
-  const { data, error } = await supabase
+  // 3. LOGS OBRIGATÓRIOS (TASK PAYLOAD)
+  console.log("TASK PAYLOAD", payload);
+
+  const { data, error, status } = await supabase
     .from('tasks')
     .insert(payload)
     .select()
     .single();
 
+  // 3. LOGS OBRIGATÓRIOS (SUPABASE RESPONSE & ERROR)
+  console.log("SUPABASE RESPONSE", data);
+  console.log("SUPABASE ERROR", error);
+
   if (error) {
-    console.error('createTask Error:', error);
     throw error;
   }
-  return data;
+  
+  return mapTaskFromDb(data);
 }
 
 export async function updateTask(id: string, updates: Partial<Task>, userId?: string): Promise<Task> {
   const uid = await getCurrentUserId(userId);
-  const payload = { ...updates };
-  if (updates.is_completed !== undefined) {
-    payload.completed_at = updates.is_completed ? new Date().toISOString() : null;
+  
+  const payload: any = {};
+  if (updates.title !== undefined) payload.title = updates.title;
+  if (updates.description !== undefined) payload.description = updates.description;
+  if (updates.group_id !== undefined) payload.group_id = updates.group_id;
+  if (updates.category_id !== undefined) payload.category_id = updates.category_id;
+  if (updates.position !== undefined) payload.position = updates.position;
+
+  if (updates.due_date !== undefined || updates.deadline !== undefined) {
+    payload.deadline = updates.due_date || updates.deadline || null;
+  }
+  if (updates.urgency_level !== undefined || updates.urgency !== undefined) {
+    const rawUrgency = updates.urgency_level || updates.urgency;
+    payload.urgency = rawUrgency === 'overdue' ? 'urgent' : rawUrgency;
+  }
+  if (updates.is_completed !== undefined || updates.completed !== undefined) {
+    const isCompleted = updates.is_completed || updates.completed || false;
+    payload.completed = isCompleted;
   }
 
   const { data, error } = await supabase
@@ -157,7 +203,7 @@ export async function updateTask(id: string, updates: Partial<Task>, userId?: st
     console.error('updateTask Error:', error);
     throw error;
   }
-  return data;
+  return mapTaskFromDb(data);
 }
 
 export async function deleteTask(id: string, userId?: string): Promise<void> {
@@ -174,6 +220,23 @@ export async function deleteTask(id: string, userId?: string): Promise<void> {
   }
 }
 
+export async function toggleTask(id: string, completed: boolean, userId?: string): Promise<Task> {
+  const uid = await getCurrentUserId(userId);
+  const { data, error } = await supabase
+    .from('tasks')
+    .update({ completed })
+    .eq('id', id)
+    .eq('user_id', uid)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('toggleTask Error:', error);
+    throw error;
+  }
+  return mapTaskFromDb(data);
+}
+
 export async function reorderTasks(reordered: Task[], userId?: string): Promise<void> {
   const uid = await getCurrentUserId(userId);
   const promises = reordered.map((t, idx) =>
@@ -184,156 +247,4 @@ export async function reorderTasks(reordered: Task[], userId?: string): Promise<
       .eq('user_id', uid)
   );
   await Promise.all(promises);
-}
-
-export async function createGroup(name: string, description: string | null, color: string, userId?: string): Promise<TaskGroup> {
-  const uid = await getCurrentUserId(userId);
-  const groupId = generateUUID();
-
-  // Find max position
-  const existing = await getTaskGroups(uid);
-  const nextPos = existing.length > 0 ? Math.max(...existing.map(g => g.position)) + 1 : 0;
-
-  const payload = {
-    id: groupId,
-    user_id: uid,
-    name,
-    description,
-    color,
-    position: nextPos,
-  };
-
-  const { data, error } = await supabase
-    .from('task_groups')
-    .insert(payload)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('createGroup Error:', error);
-    throw error;
-  }
-  return data;
-}
-
-export async function updateGroup(id: string, updates: Partial<TaskGroup>, userId?: string): Promise<TaskGroup> {
-  const uid = await getCurrentUserId(userId);
-  const { data, error } = await supabase
-    .from('task_groups')
-    .update(updates)
-    .eq('id', id)
-    .eq('user_id', uid)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('updateGroup Error:', error);
-    throw error;
-  }
-  return data;
-}
-
-export async function deleteGroup(id: string, userId?: string): Promise<void> {
-  const uid = await getCurrentUserId(userId);
-  
-  // Dependent categories and tasks inside this group should be handled on the DB cascading 
-  // or cleaned up here. We can clean up dependants directly to avoid foreign key violations.
-  const { error: taskErr } = await supabase
-    .from('tasks')
-    .delete()
-    .eq('group_id', id)
-    .eq('user_id', uid);
-
-  if (taskErr) {
-    console.error('Cascade delete tasks error:', taskErr);
-  }
-
-  const { error: catErr } = await supabase
-    .from('task_categories')
-    .delete()
-    .eq('group_id', id)
-    .eq('user_id', uid);
-
-  if (catErr) {
-    console.error('Cascade delete categories error:', catErr);
-  }
-
-  const { error } = await supabase
-    .from('task_groups')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', uid);
-
-  if (error) {
-    console.error('deleteGroup Error:', error);
-    throw error;
-  }
-}
-
-export async function createCategory(groupId: string, name: string, color: string | null, userId?: string): Promise<TaskCategory> {
-  const uid = await getCurrentUserId(userId);
-  const catId = generateUUID();
-
-  const payload = {
-    id: catId,
-    user_id: uid,
-    group_id: groupId,
-    name,
-    color,
-  };
-
-  const { data, error } = await supabase
-    .from('task_categories')
-    .insert(payload)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('createCategory Error:', error);
-    throw error;
-  }
-  return data;
-}
-
-export async function updateCategory(id: string, updates: Partial<TaskCategory>, userId?: string): Promise<TaskCategory> {
-  const uid = await getCurrentUserId(userId);
-  const { data, error } = await supabase
-    .from('task_categories')
-    .update(updates)
-    .eq('id', id)
-    .eq('user_id', uid)
-    .select()
-    .single();
-
-  if (error) {
-    console.error('updateCategory Error:', error);
-    throw error;
-  }
-  return data;
-}
-
-export async function deleteCategory(id: string, userId?: string): Promise<void> {
-  const uid = await getCurrentUserId(userId);
-
-  // Set category_id of associated tasks to null first
-  const { error: taskErr } = await supabase
-    .from('tasks')
-    .update({ category_id: null })
-    .eq('category_id', id)
-    .eq('user_id', uid);
-
-  if (taskErr) {
-    console.error('Update tasks for category removal error:', taskErr);
-  }
-
-  const { error } = await supabase
-    .from('task_categories')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', uid);
-
-  if (error) {
-    console.error('deleteCategory Error:', error);
-    throw error;
-  }
 }

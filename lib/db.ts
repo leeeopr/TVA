@@ -1,6 +1,13 @@
 'use client';
 
 import { supabase, isSupabaseConfigured } from './supabase';
+import { 
+  createTask as createSupabaseTask, 
+  updateTask as updateSupabaseTask, 
+  deleteTask as deleteSupabaseTask, 
+  reorderTasks as reorderSupabaseTasks, 
+  mapTaskFromDb
+} from './supabase/tasks';
 
 // ==========================================
 // RETRO-FUTURISTIC TERMINAL DATABANK ADAPTER
@@ -427,10 +434,13 @@ export class db {
         .order('position', { ascending: true });
 
       if (!tasksErr && tasksData) {
-        this.ramTasks = (tasksData as any[]).map(t => ({
-          ...t,
-          urgency_level: this.calculateUrgency(t.due_date)
-        }));
+        this.ramTasks = (tasksData as any[]).map(t => {
+          const mapped = mapTaskFromDb(t);
+          return {
+            ...mapped,
+            urgency_level: mapped.is_completed ? 'low' : this.calculateUrgency(mapped.due_date)
+          };
+        });
         this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS POSITIONED IN RAM.`, 'success');
       }
 
@@ -859,20 +869,25 @@ export class db {
     this.addLog(`TASK CREATED: "${title.slice(0, 15)}..." INSERTED TO RUNTIME ENGINE.`, 'success');
 
     if (supabase && this.cachedUserId !== 'user-default') {
-      const { error } = await supabase.from('tasks').insert({
-        id: taskId,
-        user_id: this.cachedUserId,
-        group_id: groupId,
-        category_id: categoryId,
-        title,
-        description,
-        due_date: dueDate,
-        urgency_level: resolvedUrgency,
-        is_completed: false,
-        completed_at: null,
-        position: maxPos
-      });
-      if (error) this.addLog(`CLOUD_WRITE_ERR: TASK INSERT EXCEPTION: ${error.message}`, 'error');
+      try {
+        const created = await createSupabaseTask({
+          id: taskId,
+          group_id: groupId,
+          category_id: categoryId,
+          title,
+          description,
+          due_date: dueDate,
+          is_completed: false,
+          position: maxPos
+        });
+        
+        // Update model to match database inputs
+        this.ramTasks = this.ramTasks.map(t => t.id === taskId ? created : t);
+        this.addLog(`CLOUD_WRITE_SUCCESS: TASK SYNCED TO SUPABASE.`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: TASK INSERT EXCEPTION: ${err.message || err}`, 'error');
+        throw err;
+      }
     }
     
     this.triggerDataRefreshCallbacks();
@@ -892,12 +907,13 @@ export class db {
     });
 
     if (supabase && this.cachedUserId !== 'user-default') {
-      const dbPayload = { ...updates };
-      if (updates.is_completed !== undefined) {
-        dbPayload.completed_at = updates.is_completed ? new Date().toISOString() : null;
+      try {
+        await updateSupabaseTask(id, updates);
+        this.addLog(`CLOUD_WRITE_SUCCESS: TASK UPDATED INSTANCE IN SUPABASE.`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: TASK UPDATE EXCEPTION: ${err.message || err}`, 'error');
+        throw err;
       }
-      const { error } = await supabase.from('tasks').update(dbPayload).eq('id', id).eq('user_id', this.cachedUserId);
-      if (error) this.addLog(`CLOUD_WRITE_ERR: TASK UPDATE EXCEPTION: ${error.message}`, 'error');
     }
 
     this.triggerDataRefreshCallbacks();
@@ -909,8 +925,13 @@ export class db {
     this.addLog(`TASK ELIMINATED: SECTOR ARCHIVE PURGED.`, 'error');
 
     if (supabase && this.cachedUserId !== 'user-default') {
-      const { error } = await supabase.from('tasks').delete().eq('id', id).eq('user_id', this.cachedUserId);
-      if (error) this.addLog(`CLOUD_WRITE_ERR: TASK SCRUBBING REJECTED: ${error.message}`, 'error');
+      try {
+        await deleteSupabaseTask(id);
+        this.addLog(`CLOUD_WRITE_SUCCESS: TASK DELETED FROM SUPABASE.`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: TASK SCRUBBING REJECTED: ${err.message || err}`, 'error');
+        throw err;
+      }
     }
     
     this.triggerDataRefreshCallbacks();
@@ -928,10 +949,12 @@ export class db {
     ];
 
     if (supabase && this.cachedUserId !== 'user-default') {
-      const promises = mapped.map(t => 
-        supabase.from('tasks').update({ position: t.position }).eq('id', t.id).eq('user_id', this.cachedUserId)
-      );
-      await Promise.all(promises);
+      try {
+        await reorderSupabaseTasks(mapped);
+        this.addLog(`CLOUD_WRITE_SUCCESS: TASKS REORDERED IN CLOUD SYNC.`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_FAIL: REORDER REJECTED: ${err.message || err}`, 'error');
+      }
     }
     this.triggerDataRefreshCallbacks();
   }
