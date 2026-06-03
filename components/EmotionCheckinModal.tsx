@@ -245,11 +245,6 @@ export default function EmotionCheckinModal() {
                         <span className="text-3xl md:text-4xl font-black select-none tracking-widest text-[#ffffff]">
                           {emo.labelZh}
                         </span>
-                        
-                        {/* Mandarin Pinyin pronunciation guide underneath */}
-                        <span className="text-xs md:text-sm font-medium select-none tracking-wider opacity-60 italic" style={{ color: activeColor }}>
-                          {emo.pinyin}
-                        </span>
                       </motion.button>
                     );
                   })}

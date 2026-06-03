@@ -6,7 +6,12 @@ import {
   updateTask as updateSupabaseTask, 
   deleteTask as deleteSupabaseTask, 
   reorderTasks as reorderSupabaseTasks, 
-  mapTaskFromDb
+  mapTaskFromDb,
+  getTaskPeriods as getSupabaseTaskPeriods,
+  createTaskPeriod as createSupabaseTaskPeriod,
+  updateTaskPeriod as updateSupabaseTaskPeriod,
+  reorderTaskPeriods as reorderSupabaseTaskPeriods,
+  deleteTaskPeriod as deleteSupabaseTaskPeriod
 } from './supabase/tasks';
 
 // ==========================================
@@ -43,11 +48,23 @@ export interface TaskCategory {
   created_at: string;
 }
 
+export interface TaskPeriod {
+  id: string;
+  user_id: string;
+  name: string;
+  icon: string | null;
+  color: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Task {
   id: string;
   user_id: string;
   group_id: string;
   category_id: string | null;
+  task_period_id?: string | null;
   title: string;
   description: string | null;
   due_date: string | null; // ISO Date String
@@ -57,11 +74,20 @@ export interface Task {
   position: number;
   created_at: string;
   updated_at: string;
+  notes?: string | null;
+  status?: string | null;
+  updated_by?: string | null;
+  time_period?: string | null;
   
   // Dynamic joins/resolved for UI mapping:
   group_name?: string;
   group_color?: string;
+  group_color_hex?: string;
   category_name?: string;
+  category_color_hex?: string;
+  period_name?: string;
+  period_icon?: string;
+  period_color?: string;
 }
 
 export interface PomodoroPreset {
@@ -191,6 +217,12 @@ export class db {
   // Active in-memory arrays (ram fallback when supabase unconfigured/offline)
   private static ramGroups: TaskGroup[] = [];
   private static ramCategories: TaskCategory[] = [];
+  private static ramPeriods: TaskPeriod[] = [
+    { id: 'p-morning', user_id: 'user-default', name: 'Manhã', icon: '☀️', color: '#60a5fa', position: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'p-afternoon', user_id: 'user-default', name: 'Pós-almoço', icon: '🌤', color: '#fbbf24', position: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'p-evening', user_id: 'user-default', name: 'Noite', icon: '🌙', color: '#fb923c', position: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { id: 'p-tomorrow', user_id: 'user-default', name: 'Amanhã', icon: '📅', color: '#c084fc', position: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+  ];
   private static ramTasks: Task[] = [];
   private static ramSessions: PomodoroSession[] = [];
   private static ramPresets: PomodoroPreset[] = [];
@@ -391,7 +423,7 @@ export class db {
         .eq('user_id', this.cachedUserId)
         .order('position', { ascending: true });
       
-      if (groupsErr) throw groupsErr;
+      if (groupsErr) throw new Error(`Erro ao recuperar grupos de tarefas do Supabase: ${groupsErr.message} - Code: ${groupsErr.code}`);
 
       if (groupsData) {
         this.ramGroups = groupsData.map((g: any) => ({
@@ -426,22 +458,102 @@ export class db {
         this.addLog(`CLOUD_SYNC: ${groupsData.length} TASK GROUPS SYNCHRONIZED RELATIONAL.`, 'success');
       }
 
+      // 4B. Fetch Task Periods
+      const { data: periodsData, error: periodsErr } = await supabase
+        .from('task_periods')
+        .select('*')
+        .eq('user_id', this.cachedUserId)
+        .order('position', { ascending: true });
+
+      if (periodsErr) {
+        this.addLog(`CLOUD_SYNC_WARN: COULD NOT FETCH TASK PERIODS: ${periodsErr.message}`, 'warning');
+      } else if (periodsData) {
+        if (periodsData.length === 0) {
+          // Initialize default periods on Supabase
+          const defaults = [
+            { name: 'Manhã', icon: '☀️', color: '#60a5fa', position: 0 },
+            { name: 'Pós-almoço', icon: '🌤', color: '#fbbf24', position: 1 },
+            { name: 'Noite', icon: '🌙', color: '#fb923c', position: 2 },
+            { name: 'Amanhã', icon: '📅', color: '#c084fc', position: 3 }
+          ];
+          const createdList = [];
+          for (const d of defaults) {
+            try {
+              const created = await createSupabaseTaskPeriod({
+                name: d.name,
+                icon: d.icon,
+                color: d.color,
+                position: d.position
+              });
+              createdList.push(created);
+            } catch (err) {
+              console.error('Error creating default periods:', err);
+            }
+          }
+          this.ramPeriods = createdList.length > 0 ? createdList : this.ramPeriods;
+          this.addLog(`CLOUD_SYNC: INITIALIZED ${createdList.length} DEFAULT TÁTICA PERIODS.`, 'success');
+        } else {
+          this.ramPeriods = periodsData;
+          this.addLog(`CLOUD_SYNC: ${periodsData.length} TASK PERIODS SYNCHRONIZED.`, 'success');
+        }
+      }
+
       // 5. Fetch Tasks
       const { data: tasksData, error: tasksErr } = await supabase
         .from('tasks')
-        .select('*')
+        .select(`
+          *,
+          category:task_categories(
+            *,
+            group:task_groups(
+              *,
+              color:custom_colors(*)
+            ),
+            color:custom_colors(*)
+          ),
+          group:task_groups(
+            *,
+            color:custom_colors(*)
+          ),
+          period:task_periods(*)
+        `)
         .eq('user_id', this.cachedUserId)
         .order('position', { ascending: true });
 
       if (!tasksErr && tasksData) {
         this.ramTasks = (tasksData as any[]).map(t => {
           const mapped = mapTaskFromDb(t);
+          let pId = mapped.task_period_id;
+          if (!pId && mapped.time_period) {
+            const foundPeriod = this.ramPeriods.find(p => p.name.toLowerCase().includes(mapped.time_period!.toLowerCase()) || p.id.includes(mapped.time_period!));
+            if (foundPeriod) {
+              pId = foundPeriod.id;
+            }
+          }
+
+          // Resolve group and category models
+          const categoryObj = t.category;
+          const groupObj = t.group || categoryObj?.group;
+          
+          const colorObj = groupObj?.color;
+          const catColorObj = categoryObj?.color;
+          const periodObj = t.period || this.ramPeriods.find(p => p.id === pId);
+
           return {
             ...mapped,
-            urgency_level: mapped.is_completed ? 'low' : this.calculateUrgency(mapped.due_date)
+            task_period_id: pId,
+            urgency_level: mapped.is_completed ? 'low' : this.calculateUrgency(mapped.due_date),
+            group_name: groupObj?.name || undefined,
+            group_color: colorObj?.name || undefined,
+            group_color_hex: colorObj?.hex_code || undefined,
+            category_name: categoryObj?.name || undefined,
+            category_color_hex: catColorObj?.hex_code || undefined,
+            period_name: periodObj?.name || undefined,
+            period_icon: periodObj?.icon || undefined,
+            period_color: periodObj?.color || undefined
           };
         });
-        this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS POSITIONED IN RAM.`, 'success');
+        this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS RELATIONALLY ALIGNED IN RAM.`, 'success');
       }
 
       // 6. Fetch Pomodoro Sessions
@@ -674,7 +786,7 @@ export class db {
       if (error) {
         console.log("SUPABASE DELETE GROUP ERROR", error);
         this.addLog(`CLOUD_WRITE_ERR: GROUP DELETION REJECTED: ${error.message}`, 'error');
-        throw error;
+        throw new Error(`Erro ao deletar grupo (task_groups): ${error.message} - Code: ${error.code}`);
       }
     }
     this.triggerDataRefreshCallbacks();
@@ -747,7 +859,7 @@ export class db {
       if (error) {
         console.log("SUPABASE ERROR", error);
         this.addLog(`CLOUD_WRITE_ERR: CATEGORY EXCEPTION: ${error.message}`, 'error');
-        throw error;
+        throw new Error(`Erro ao criar categoria (task_categories): ${error.message} - Code: ${error.code}`);
       }
     }
     this.triggerDataRefreshCallbacks();
@@ -791,7 +903,7 @@ export class db {
       if (error) {
         console.log("SUPABASE ERROR", error);
         this.addLog(`CLOUD_WRITE_ERR: CATEGORY AMENDMENT REJECTED: ${error.message}`, 'error');
-        throw error;
+        throw new Error(`Erro ao atualizar categoria (task_categories): ${error.message} - Code: ${error.code}`);
       }
     }
     this.triggerDataRefreshCallbacks();
@@ -820,17 +932,37 @@ export class db {
   // TASKS CRUD
   // ==========================================
   static getTasks(): Task[] {
-    // Dynamically calculate urgency on retrieval
+    const COLOR_NAME_TO_HEX: Record<string, string> = {
+      blue: '#60a5fa',
+      purple: '#c084fc',
+      green: '#34d399',
+      red: '#f87171',
+      yellow: '#fbbf24',
+      cyan: '#22d3ee',
+      orange: '#fb923c'
+    };
+
     return this.ramTasks.map(t => {
-      const groupObj = this.ramGroups.find(g => g.id === t.group_id);
       const catObj = this.ramCategories.find(c => c.id === t.category_id);
+      const targetGroupId = t.group_id || catObj?.group_id;
+      const groupObj = this.ramGroups.find(g => g.id === targetGroupId);
+      const periodObj = this.ramPeriods.find(p => p.id === t.task_period_id);
       
+      const computedGroupColorName = t.group_color || groupObj?.color || 'blue';
+      const computedGroupColorHex = t.group_color_hex || COLOR_NAME_TO_HEX[computedGroupColorName] || '#60a5fa';
+      const computedCategoryColorHex = t.category_color_hex || (catObj?.color ? COLOR_NAME_TO_HEX[catObj.color] : undefined);
+
       return {
         ...t,
         urgency_level: t.is_completed ? 'low' : this.calculateUrgency(t.due_date),
-        group_name: groupObj?.name || 'Geral',
-        group_color: groupObj?.color || 'blue',
-        category_name: catObj?.name || ''
+        group_name: t.group_name || groupObj?.name || 'Geral',
+        group_color: computedGroupColorName,
+        group_color_hex: computedGroupColorHex,
+        category_name: t.category_name || catObj?.name || '',
+        category_color_hex: computedCategoryColorHex,
+        period_name: t.period_name || periodObj?.name || '',
+        period_icon: t.period_icon || periodObj?.icon || '',
+        period_color: t.period_color || periodObj?.color || ''
       };
     }).sort((a, b) => a.position - b.position);
   }
@@ -840,7 +972,9 @@ export class db {
     categoryId: string | null, 
     title: string, 
     description: string | null, 
-    dueDate: string | null
+    dueDate: string | null,
+    timePeriod: string | null = null,
+    taskPeriodId: string | null = null
   ): Promise<Task> {
     const taskId = generateUUID();
     const resolvedUrgency = this.calculateUrgency(dueDate);
@@ -854,6 +988,7 @@ export class db {
       user_id: this.cachedUserId,
       group_id: groupId,
       category_id: categoryId,
+      task_period_id: taskPeriodId,
       title,
       description,
       due_date: dueDate,
@@ -862,7 +997,8 @@ export class db {
       completed_at: null,
       position: maxPos,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      time_period: timePeriod
     };
 
     this.ramTasks.push(newTask);
@@ -874,19 +1010,24 @@ export class db {
           id: taskId,
           group_id: groupId,
           category_id: categoryId,
+          task_period_id: taskPeriodId,
           title,
           description,
           due_date: dueDate,
           is_completed: false,
-          position: maxPos
+          position: maxPos,
+          time_period: timePeriod
         });
         
         // Update model to match database inputs
         this.ramTasks = this.ramTasks.map(t => t.id === taskId ? created : t);
         this.addLog(`CLOUD_WRITE_SUCCESS: TASK SYNCED TO SUPABASE.`, 'success');
       } catch (err: any) {
-        this.addLog(`CLOUD_WRITE_ERR: TASK INSERT EXCEPTION: ${err.message || err}`, 'error');
-        throw err;
+        // Rollback optimistic update
+        this.ramTasks = this.ramTasks.filter(t => t.id !== taskId);
+        const processedErr = err instanceof Error ? err : new Error(err?.message || JSON.stringify(err) || String(err));
+        this.addLog(`CLOUD_WRITE_ERR: TASK INSERT EXCEPTION: ${processedErr.message}`, 'error');
+        throw processedErr;
       }
     }
     
@@ -895,6 +1036,7 @@ export class db {
   }
 
   static async updateTask(id: string, updates: Partial<Task>): Promise<Task[]> {
+    const previousTasks = [...this.ramTasks];
     this.ramTasks = this.ramTasks.map(t => {
       if (t.id === id) {
         const merged = { ...t, ...updates, updated_at: new Date().toISOString() };
@@ -911,8 +1053,11 @@ export class db {
         await updateSupabaseTask(id, updates);
         this.addLog(`CLOUD_WRITE_SUCCESS: TASK UPDATED INSTANCE IN SUPABASE.`, 'success');
       } catch (err: any) {
-        this.addLog(`CLOUD_WRITE_ERR: TASK UPDATE EXCEPTION: ${err.message || err}`, 'error');
-        throw err;
+        // Rollback optimistic update
+        this.ramTasks = previousTasks;
+        const processedErr = err instanceof Error ? err : new Error(err?.message || JSON.stringify(err) || String(err));
+        this.addLog(`CLOUD_WRITE_ERR: TASK UPDATE EXCEPTION: ${processedErr.message}`, 'error');
+        throw processedErr;
       }
     }
 
@@ -921,6 +1066,7 @@ export class db {
   }
 
   static async deleteTask(id: string): Promise<Task[]> {
+    const previousTasks = [...this.ramTasks];
     this.ramTasks = this.ramTasks.filter(t => t.id !== id);
     this.addLog(`TASK ELIMINATED: SECTOR ARCHIVE PURGED.`, 'error');
 
@@ -929,8 +1075,11 @@ export class db {
         await deleteSupabaseTask(id);
         this.addLog(`CLOUD_WRITE_SUCCESS: TASK DELETED FROM SUPABASE.`, 'success');
       } catch (err: any) {
-        this.addLog(`CLOUD_WRITE_ERR: TASK SCRUBBING REJECTED: ${err.message || err}`, 'error');
-        throw err;
+        // Rollback optimistic delete
+        this.ramTasks = previousTasks;
+        const processedErr = err instanceof Error ? err : new Error(err?.message || JSON.stringify(err) || String(err));
+        this.addLog(`CLOUD_WRITE_ERR: TASK SCRUBBING REJECTED: ${processedErr.message}`, 'error');
+        throw processedErr;
       }
     }
     
@@ -1073,5 +1222,127 @@ export class db {
         date: stats.date
       }, { onConflict: 'user_id, date' }).then();
     }
+  }
+
+  // ==========================================
+  // TASK PERIODS CRUD
+  // ==========================================
+  static getTaskPeriods(): TaskPeriod[] {
+    return this.ramPeriods.sort((a, b) => a.position - b.position);
+  }
+
+  static async saveTaskPeriod(name: string, icon: string, color: string): Promise<TaskPeriod> {
+    const id = generateUUID();
+    const position = this.ramPeriods.length;
+
+    const newPeriod: TaskPeriod = {
+      id,
+      user_id: this.cachedUserId,
+      name,
+      icon,
+      color,
+      position,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramPeriods.push(newPeriod);
+    this.addLog(`PERIOD CREATED: "${name}" REGISTERED IN SCHEDULER.`, 'success');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        const created = await createSupabaseTaskPeriod({
+          id,
+          name,
+          icon,
+          color,
+          position
+        });
+        this.ramPeriods = this.ramPeriods.map(p => p.id === id ? created : p);
+        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD SYNCED.`, 'success');
+      } catch (err: any) {
+        this.ramPeriods = this.ramPeriods.filter(p => p.id !== id);
+        this.addLog(`CLOUD_WRITE_ERR: PERIOD EXCEPTION: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return newPeriod;
+  }
+
+  static async updateTaskPeriod(id: string, updates: Partial<TaskPeriod>): Promise<TaskPeriod[]> {
+    const previousPeriods = [...this.ramPeriods];
+    this.ramPeriods = this.ramPeriods.map(p => {
+      if (p.id === id) {
+        return { ...p, ...updates, updated_at: new Date().toISOString() };
+      }
+      return p;
+    });
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updateSupabaseTaskPeriod(id, updates);
+        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD UPDATE SYNCED.`, 'success');
+      } catch (err: any) {
+        this.ramPeriods = previousPeriods;
+        this.addLog(`CLOUD_WRITE_ERR: PERIOD UPDATE EXCEPTION: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.getTaskPeriods();
+  }
+
+  static async deleteTaskPeriod(
+    id: string,
+    transitionMode: 'move' | 'unassign' | 'delete',
+    targetPeriodId?: string
+  ): Promise<TaskPeriod[]> {
+    const previousPeriods = [...this.ramPeriods];
+    const previousTasks = [...this.ramTasks];
+
+    // Optimistic cache update
+    if (transitionMode === 'move' && targetPeriodId) {
+      this.ramTasks = this.ramTasks.map(t => t.task_period_id === id ? { ...t, task_period_id: targetPeriodId } : t);
+    } else if (transitionMode === 'unassign') {
+      this.ramTasks = this.ramTasks.map(t => t.task_period_id === id ? { ...t, task_period_id: null } : t);
+    } else if (transitionMode === 'delete') {
+      this.ramTasks = this.ramTasks.filter(t => t.task_period_id !== id);
+    }
+
+    this.ramPeriods = this.ramPeriods.filter(p => p.id !== id);
+    this.addLog(`PERIOD REMOVED: ARCHIVE RETIRED FROM SERVICE.`, 'error');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deleteSupabaseTaskPeriod(id, transitionMode, targetPeriodId);
+        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD DELETION COMPLETED IN SUPABASE.`, 'success');
+      } catch (err: any) {
+        this.ramPeriods = previousPeriods;
+        this.ramTasks = previousTasks;
+        this.addLog(`CLOUD_WRITE_ERR: PERIOD DELETE EXCEPTION: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.getTaskPeriods();
+  }
+
+  static async reorderTaskPeriods(reordered: TaskPeriod[]): Promise<void> {
+    const mapped = reordered.map((p, idx) => ({ ...p, position: idx }));
+    this.ramPeriods = mapped;
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await reorderSupabaseTaskPeriods(mapped);
+        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD SEQUENCE OPTIMIZED.`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PERIOD REORDER EXCEPTION: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
   }
 }

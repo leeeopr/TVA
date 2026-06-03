@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog } from '@/lib/db';
+import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 
 interface ProductivityState {
   tasks: Task[];
   presets: PomodoroPreset[];
+  periods: TaskPeriod[];
   stats: DailyStatistics | null;
   settings: Settings;
   terminalLogs: SystemTerminalLog[];
@@ -37,6 +38,7 @@ interface ProductivityState {
 export const useProductivityStore = create<ProductivityState>((set, get) => ({
   tasks: [],
   presets: [],
+  periods: [],
   stats: null,
   settings: {
     user_id: 'user-default',
@@ -64,6 +66,7 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
     set({
       tasks: db.getTasks(),
       presets: db.getPresets(),
+      periods: db.getTaskPeriods(),
       stats: db.getStats(),
       settings: db.getSettings(),
       terminalLogs: db.getLogs(),

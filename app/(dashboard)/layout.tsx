@@ -8,7 +8,7 @@ import { db } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 import { useProductivityStore } from '@/stores/productivityStore';
 import { useAuthStore } from '@/stores/authStore';
-import EmotionCheckinModal from '@/components/EmotionCheckinModal';
+import DailyMoodCheck from '@/components/daily-mood-check';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -95,7 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       } else if (e.key === 'F3') {
         e.preventDefault();
         sounds.playButtonSwitch();
-        router.push('/tasks');
+        router.push('/dashboard');
       } else if (e.key === 'F4') {
         e.preventDefault();
         sounds.playButtonSwitch();
@@ -161,7 +161,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="phosphor-beam" />
 
       {/* GLOBAL DIARY EMOTION CHECK-IN SYSTEM */}
-      <EmotionCheckinModal />
+      <DailyMoodCheck />
 
       {/* Retro background tech gridding */}
       <div className={`absolute inset-0 opacity-40 pointer-events-none ${
@@ -260,22 +260,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Pomodoro CRT
               </span>
               <span className="hidden lg:inline text-[9px] opacity-70">[F2]</span>
-            </Link>
-
-            <Link
-              href="/tasks"
-              onClick={() => sounds.playButtonSwitch()}
-              className={`flex-1 lg:flex-none py-2 px-3 text-left rounded flex items-center justify-between gap-2 border text-xs tracking-wider transition-all uppercase ${
-                pathname === '/tasks' 
-                  ? 'bg-[var(--color-amber)] text-black border-[var(--color-amber)] font-black' 
-                  : 'bg-transparent text-[var(--color-amber)] border-[var(--color-amber)]/30 hover:bg-[var(--color-amber)]/10'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <CheckSquare className="w-4 h-4" />
-                Tarefa Matrix
-              </span>
-              <span className="hidden lg:inline text-[9px] opacity-70">[F3]</span>
             </Link>
 
             <Link

@@ -79,18 +79,43 @@ ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS position INTEGER DEF
 ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS description TEXT;
 ALTER TABLE public.task_categories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW());
 
+-- 5B. TASK PERIODS
+CREATE TABLE IF NOT EXISTS public.task_periods (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    icon TEXT,
+    color TEXT,
+    position INTEGER DEFAULT 0 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- RLS AND POLICIES FOR TASK PERIODS
+ALTER TABLE public.task_periods ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow individual read" ON public.task_periods FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Allow individual insert" ON public.task_periods FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Allow individual update" ON public.task_periods FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Allow individual delete" ON public.task_periods FOR DELETE USING (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_task_periods_user_id ON public.task_periods(user_id);
+CREATE INDEX IF NOT EXISTS idx_task_periods_position ON public.task_periods(position);
+
 -- 6. TASKS TABLE
 CREATE TABLE IF NOT EXISTS public.tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     group_id UUID REFERENCES public.task_groups(id) ON DELETE SET NULL,
     category_id UUID REFERENCES public.task_categories(id) ON DELETE SET NULL,
+    task_period_id UUID REFERENCES public.task_periods(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     description TEXT,
     deadline TIMESTAMPTZ,
     urgency TEXT CHECK (urgency IN ('low', 'moderate', 'urgent')),
     completed BOOLEAN DEFAULT FALSE,
     position INTEGER DEFAULT 0,
+    time_period TEXT CHECK (time_period IN ('morning', 'afternoon', 'evening', 'tomorrow')),
     created_at TIMESTAMPTZ DEFAULT timezone('utc', now()),
     updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
@@ -102,6 +127,10 @@ ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS deadline TIMESTAMPTZ;
 ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS urgency TEXT CHECK (urgency IN ('low', 'moderate', 'urgent'));
 ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS completed BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS position INTEGER DEFAULT 0;
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS time_period TEXT CHECK (time_period IN ('morning', 'afternoon', 'evening', 'tomorrow'));
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS task_period_id UUID REFERENCES public.task_periods(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_task_period_id ON public.tasks(task_period_id);
 
 -- 7. POMODORO SESSIONS
 CREATE TABLE IF NOT EXISTS public.pomodoro_sessions (
@@ -392,3 +421,40 @@ CREATE INDEX IF NOT EXISTS idx_pomodoro_sessions_user_id ON public.pomodoro_sess
 CREATE INDEX IF NOT EXISTS idx_daily_stats_user_id_date ON public.daily_statistics(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_emotion_user ON public.daily_emotion_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_emotion_date ON public.daily_emotion_logs(local_date);
+
+-- =========================================================
+-- 12. DAILY MOODS (DAILY EMOTION CHECK-IN SYSTEM)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS public.daily_moods (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  emotion TEXT NOT NULL,
+  emotion_score INTEGER NOT NULL,
+  emotion_label_zh TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT timezone('utc', now()) NOT NULL,
+  mood_date DATE NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_daily_mood ON public.daily_moods(user_id, mood_date);
+
+ALTER TABLE public.daily_moods ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own moods" ON public.daily_moods;
+CREATE POLICY "Users can view own moods"
+ON public.daily_moods
+FOR SELECT
+USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can insert own moods" ON public.daily_moods;
+CREATE POLICY "Users can insert own moods"
+ON public.daily_moods
+FOR INSERT
+WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can update own moods" ON public.daily_moods;
+CREATE POLICY "Users can update own moods"
+ON public.daily_moods
+FOR UPDATE
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+

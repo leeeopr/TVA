@@ -43,9 +43,9 @@ export default function EmotionHeatmap({ logs }: EmotionHeatmapProps) {
     switch (key) {
       case 'agitated': return '焦';
       case 'happy': return '開';
-      case 'sad': return '悲';
+      case 'sad': return '難';
       case 'zen': return '平';
-      case 'overthinking': return '內';
+      case 'overthinking': return '消';
       default: return '·';
     }
   };
@@ -101,7 +101,7 @@ export default function EmotionHeatmap({ logs }: EmotionHeatmapProps) {
               {row.cells.map((cell, cIdx) => {
                 const log = cell.log;
                 const tooltipText = log 
-                  ? `${cell.dateString} : [${log.emotion_label_zh}] (${log.emotion_type})`
+                  ? `${cell.dateString} : [${log.emotion_label_zh}]`
                   : `${cell.dateString} : [無紀錄]`;
 
                 return (

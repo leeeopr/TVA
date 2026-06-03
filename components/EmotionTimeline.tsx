@@ -84,9 +84,6 @@ export default function EmotionTimeline({ logs }: EmotionTimelineProps) {
                         <span className="text-xl font-bold text-white tracking-widest">
                           {log.emotion_label_zh}
                         </span>
-                        <span className="text-[9px] uppercase border px-1.5 py-0.5 rounded border-[var(--color-amber)]/35 text-[var(--color-amber)]/80">
-                          {log.emotion_type}
-                        </span>
                       </div>
                       <div className="text-[9px] font-bold text-[var(--color-amber)]/50 tracking-wider">
                         {getSubTitleText(log.emotion_type)}

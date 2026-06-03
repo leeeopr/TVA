@@ -18,11 +18,11 @@ export interface EmotionDefinition {
 }
 
 export const EMOTIONS: EmotionDefinition[] = [
-  { key: 'agitated', labelZh: '焦躁', pinyin: 'jiāo zào' }, // ACELERADO
-  { key: 'happy', labelZh: '開心', pinyin: 'kāi xīn' },     // FELIZ
-  { key: 'sad', labelZh: '悲傷', pinyin: 'bēi shāng' },     // TRISTE
-  { key: 'zen', labelZh: '平靜', pinyin: 'píng jìng' },     // ZEN
-  { key: 'overthinking', labelZh: '內耗', pinyin: 'nèi hào' }, // PENSATIVO RUIM
+  { key: 'agitated', labelZh: '焦躁', pinyin: 'jiāo zào' }, // ACELERADO / AGITATED
+  { key: 'happy', labelZh: '開心', pinyin: 'kāi xīn' },          // FELIZ / HAPPY
+  { key: 'sad', labelZh: '難過', pinyin: 'nán guò' },           // TRISTE / SAD
+  { key: 'zen', labelZh: '平靜', pinyin: 'píng jìng' },          // ZEN / CALM
+  { key: 'overthinking', labelZh: '消極思考', pinyin: 'xiāo jí sī kǎo' }, // PENSATIVO RUIM / OVERTHINKING
 ];
 
 // Seeded deterministic random generator for shuffling options daily without muscle memory

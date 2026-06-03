@@ -1,14 +1,15 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useEmotionStore, EmotionType, EMOTIONS } from '@/stores/emotionStore';
+import { useDailyMood } from '@/hooks/useDailyMood';
 import { useProductivityStore } from '@/stores/productivityStore';
+import { EmotionType, EMOTIONS } from '@/stores/emotionStore';
 import EmotionHeatmap from './EmotionHeatmap';
 import EmotionTimeline from './EmotionTimeline';
 import { BrainCircuit, Activity, Flame, TrendingUp } from 'lucide-react';
 
 export default function EmotionAnalytics() {
-  const { emotionHistory, fetchHistory } = useEmotionStore();
+  const { emotionHistory, fetchHistory } = useDailyMood();
   const { settings } = useProductivityStore();
 
   useEffect(() => {
@@ -29,6 +30,19 @@ export default function EmotionAnalytics() {
         ? 'rgba(51, 255, 51, 0.45)' 
         : 'rgba(0, 229, 255, 0.45)';
 
+  // Map database entries to match static widget properties
+  const mappedHistory = emotionHistory.map(item => ({
+    id: item.id,
+    user_id: item.user_id,
+    emotion_type: (item.emotion === 'acelerado' ? 'agitated' :
+                   item.emotion === 'feliz' ? 'happy' :
+                   item.emotion === 'triste' ? 'sad' :
+                   item.emotion === 'zen' ? 'zen' : 'overthinking') as EmotionType,
+    emotion_label_zh: item.emotion_label_zh,
+    local_date: item.mood_date,
+    created_at: item.created_at
+  }));
+
   // Assign scores to emotion keys (1-5)
   const emotionScores: Record<EmotionType, number> = {
     sad: 1,
@@ -40,9 +54,9 @@ export default function EmotionAnalytics() {
 
   // 1. Dominant Emotion
   const getDominantEmotion = (): { zh: string; key: string } => {
-    if (emotionHistory.length === 0) return { zh: '無數據', key: 'none' };
+    if (mappedHistory.length === 0) return { zh: '無數據', key: 'none' };
     const counts: Record<string, number> = {};
-    emotionHistory.forEach((log) => {
+    mappedHistory.forEach((log) => {
       counts[log.emotion_type] = (counts[log.emotion_type] || 0) + 1;
     });
 
@@ -61,10 +75,10 @@ export default function EmotionAnalytics() {
 
   // 2. Emotional Stability Coefficient
   const getStabilityCoefficient = (): number => {
-    if (emotionHistory.length < 2) return 100;
+    if (mappedHistory.length < 2) return 100;
 
     // Ordered chronologically for calculation
-    const chronoLogs = [...emotionHistory]
+    const chronoLogs = [...mappedHistory]
       .sort((a, b) => new Date(a.local_date).getTime() - new Date(b.local_date).getTime());
 
     let deltaSum = 0;
@@ -82,11 +96,11 @@ export default function EmotionAnalytics() {
 
   // 3. Consecutive Zen/Calm Days Streak
   const getZenStreak = (): number => {
-    if (emotionHistory.length === 0) return 0;
+    if (mappedHistory.length === 0) return 0;
 
     // Map logs, keyed by date string
-    const logByDate = new Map<string, typeof emotionHistory[0]>(
-      emotionHistory.map((l) => [l.local_date, l])
+    const logByDate = new Map<string, typeof mappedHistory[0]>(
+      mappedHistory.map((l) => [l.local_date, l])
     );
     
     let streak = 0;
@@ -136,9 +150,9 @@ export default function EmotionAnalytics() {
 
   // 4. Emotional Trend Direction
   const getVibrationTrend = (): string => {
-    if (emotionHistory.length < 3) return '恆定波形 (BALANCED PHASE)';
+    if (mappedHistory.length < 3) return '恆定波形 (BALANCED PHASE)';
 
-    const scores = emotionHistory.map((l) => emotionScores[l.emotion_type] || 3);
+    const scores = mappedHistory.map((l) => emotionScores[l.emotion_type] || 3);
     const mid = Math.ceil(scores.length / 2);
     
     const recentScores = scores.slice(0, mid);
@@ -184,9 +198,6 @@ export default function EmotionAnalytics() {
               style={{ textShadow: `0 0 10px ${activeColor}` }}
             >
               {dominant.zh}
-            </span>
-            <span className="text-[10px] border border-[var(--color-amber)]/20 px-1 py-0.5 rounded text-[var(--color-amber)]/60 uppercase">
-              {dominant.key === 'none' ? 'N/A' : dominant.key}
             </span>
           </div>
           <p className="text-[9px] text-[var(--color-amber)]/60 leading-normal uppercase">
@@ -283,12 +294,12 @@ export default function EmotionAnalytics() {
         
         {/* Heatmap takes up 3 columns */}
         <div className="lg:col-span-3 flex">
-          <EmotionHeatmap logs={emotionHistory} />
+          <EmotionHeatmap logs={mappedHistory} />
         </div>
 
         {/* Timeline sequential view takes up 2 columns */}
         <div className="lg:col-span-2 flex">
-          <EmotionTimeline logs={emotionHistory} />
+          <EmotionTimeline logs={mappedHistory} />
         </div>
 
       </div>
