@@ -354,40 +354,40 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 9. METRICS BY SYNERGY GROUP */}
+        {/* 9. METRICS BY OPERATIONAL PERIOD */}
         <div className="border-t border-white/5 pt-3.5 space-y-2">
           <div className="text-[9px] font-black uppercase text-[var(--color-amber)]/75 tracking-widest">
-            📂 [ Estatísticas por Grupo de Sinergia ]
+            📂 [ Estatísticas por Período Operacional ]
           </div>
-          {groups.length === 0 ? (
-            <div className="opacity-40 text-[10px] uppercase italic">Nenhum grupo operacional carregado do Supabase.</div>
+          {periods.length === 0 ? (
+            <div className="opacity-40 text-[10px] uppercase italic">Nenhum período operacional carregado do Supabase.</div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {groups.map(g => {
-                const groupTasks = tasks.filter(t => t.group_id === g.id);
-                const pending = groupTasks.filter(t => !t.is_completed).length;
-                const completed = groupTasks.filter(t => t.is_completed).length;
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {periods.map(p => {
+                const periodTasks = tasks.filter(t => t.task_period_id === p.id);
+                const pending = periodTasks.filter(t => !t.is_completed).length;
+                const completed = periodTasks.filter(t => t.is_completed).length;
                 const total = pending + completed;
                 const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-                const hex = ColorToHex(g.color);
+                const pColor = p.color || '#60a5fa';
 
                 return (
-                  <div key={g.id} className="border border-white/5 bg-zinc-950/60 p-2.5 rounded flex flex-col justify-between gap-1.5 uppercase font-mono text-[9.5px]">
+                  <div key={p.id} className="border border-white/5 bg-zinc-950/60 p-2.5 rounded flex flex-col justify-between gap-1.5 uppercase font-mono text-[9.5px]">
                     <div className="flex items-center justify-between">
-                      <span className="font-extrabold flex items-center gap-1.5" style={{ color: hex }}>
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: hex, boxShadow: `0 0 5 w-2 bg-slate-900` }} />
-                        {g.name}
+                      <span className="font-extrabold flex items-center gap-1.5 font-mono" style={{ color: pColor }}>
+                        <span className="text-xs leading-none">{p.icon || '☀️'}</span>
+                        {p.name}
                       </span>
                       <span className="opacity-55 tracking-widest">[ {pending}P // {completed}D ]</span>
                     </div>
                     
                     <div className="space-y-1">
-                      <div className="flex justify-between text-[8px] opacity-70">
-                        <span>Pendentes: {pending}</span>
+                      <div className="flex justify-between text-[8px] opacity-70 font-mono">
+                        <span>Tarefas: {total}</span>
                         <span>Progresso: {percent}%</span>
                       </div>
                       <div className="w-full bg-black border border-white/10 h-1.5 p-px rounded-sm">
-                        <div className="h-full rounded-sm transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: hex, boxShadow: `0 0 5px ${hex}` }} />
+                        <div className="h-full rounded-sm transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: pColor, boxShadow: `0 0 5px ${pColor}` }} />
                       </div>
                     </div>
                   </div>
@@ -539,6 +539,23 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div>
+            <label className="block text-[9px] text-white/50 uppercase mb-1 font-bold">Bloco / Período</label>
+            <select
+              value={filterPeriodId}
+              onChange={(e) => {
+                sounds.playKeyClick();
+                setFilterPeriodId(e.target.value);
+              }}
+              className="w-full bg-black border border-white/15 p-1.5 text-xs text-white uppercase focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
+            >
+              <option value="">Todos os Períodos</option>
+              {periods.map(p => (
+                <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="block text-[9px] text-white/50 uppercase mb-1 font-bold">Grupo de Sinergia</label>
             <select
               value={filterGroupId}
@@ -576,23 +593,6 @@ export default function DashboardPage() {
           </div>
 
           <div>
-            <label className="block text-[9px] text-white/50 uppercase mb-1 font-bold">Bloco / Período</label>
-            <select
-              value={filterPeriodId}
-              onChange={(e) => {
-                sounds.playKeyClick();
-                setFilterPeriodId(e.target.value);
-              }}
-              className="w-full bg-black border border-white/15 p-1.5 text-xs text-white uppercase focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
-            >
-              <option value="">Todos os Períodos</option>
-              {periods.map(p => (
-                <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
             <label className="block text-[9px] text-white/50 uppercase mb-1 font-bold">Urgência</label>
             <select
               value={filterUrgency}
@@ -626,27 +626,30 @@ export default function DashboardPage() {
               🎯 Próxima Ação
             </span>
 
-            {/* Hierarchical metadata labels for the recommended task (Point 7) */}
+            {/* Hierarchical metadata labels for the recommended task (Period -> Group -> Category) */}
             <div className="flex flex-wrap items-center gap-2 font-mono text-[9px] uppercase">
-              {recommendedTask.group_name && (
-                <span className="font-extrabold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${recommendedTask.group_color_hex || ColorToHex(recommendedTask.group_color || '')}15`, color: recommendedTask.group_color_hex || ColorToHex(recommendedTask.group_color || '') }}>
-                  {recommendedTask.group_name}
+              {recommendedTask.period_name && (
+                <span 
+                  className="font-bold px-1.5 py-0.5 rounded border flex items-center gap-1"
+                  style={{ borderColor: `${recommendedTask.period_color}35`, color: recommendedTask.period_color, backgroundColor: `${recommendedTask.period_color}10` }}
+                >
+                  <span>{recommendedTask.period_icon || '☀️'}</span>
+                  <span>{recommendedTask.period_name}</span>
                 </span>
+              )}
+              {recommendedTask.group_name && (
+                <>
+                  <span className="text-white/40">/</span>
+                  <span className="font-extrabold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${recommendedTask.group_color_hex || ColorToHex(recommendedTask.group_color || '')}15`, color: recommendedTask.group_color_hex || ColorToHex(recommendedTask.group_color || '') }}>
+                    {recommendedTask.group_name}
+                  </span>
+                </>
               )}
               {recommendedTask.category_name && (
                 <>
                   <span className="text-white/40">/</span>
-                  <span className="font-bold text-white/80">
+                  <span className="font-bold text-white/80 bg-white/5 px-2 py-0.5 rounded border border-white/10">
                     {recommendedTask.category_name}
-                  </span>
-                </>
-              )}
-              {recommendedTask.period_name && (
-                <>
-                  <span className="text-white/40">/</span>
-                  <span className="text-white/70 flex items-center gap-1">
-                    <span>{recommendedTask.period_icon}</span>
-                    <span>{recommendedTask.period_name}</span>
                   </span>
                 </>
               )}
@@ -707,80 +710,134 @@ export default function DashboardPage() {
         </div>
 
         {(() => {
-          // Process hierarchical lists dynamically
+          // Process hierarchical lists dynamically: Period -> Group -> Category -> Task
           const groupedStructure: {
-            group: TaskGroup;
-            category: TaskCategory | null;
             period: TaskPeriod | null;
-            tasks: Task[];
+            groups: {
+              group: TaskGroup;
+              categories: {
+                category: TaskCategory | null;
+                tasks: Task[];
+              }[];
+            }[];
           }[] = [];
 
-          // Loop 1: Synergy Groups from database
-          groups.forEach(group => {
-            const groupTasks = filteredTasks.filter(t => t.group_id === group.id);
-            if (groupTasks.length === 0) return;
+          // 1. Gather all periods
+          const sortedPeriods: (TaskPeriod | null)[] = [...periods].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+          
+          // Check if there are tasks with unassigned/null periods
+          const hasUnassignedPeriodTasks = filteredTasks.some(
+            t => !t.task_period_id || !periods.some(p => p.id === t.task_period_id)
+          );
+          if (hasUnassignedPeriodTasks) {
+            sortedPeriods.push(null);
+          }
 
-            const catsInGroup = categories.filter(c => c.group_id === group.id);
-            const catOptions = [...catsInGroup, { id: 'null', name: 'Geral', group_id: group.id, color: null, created_at: '' }];
+          sortedPeriods.forEach(period => {
+            // Find tasks for this period
+            const tasksForPeriod = filteredTasks.filter(t => {
+              if (period === null) {
+                return !t.task_period_id || !periods.some(p => p.id === t.task_period_id);
+              }
+              return t.task_period_id === period.id;
+            });
 
-            // Loop 2: Categories within the Synergy Group
-            catOptions.forEach(category => {
-              const isNullCat = category.id === 'null';
-              const catTasks = groupTasks.filter(t => isNullCat ? (!t.category_id || t.category_id === 'null') : t.category_id === category.id);
-              if (catTasks.length === 0) return;
+            if (tasksForPeriod.length === 0) return;
 
-              // Loop 3: Periods from database
-              periods.forEach(period => {
-                const periodTasks = catTasks.filter(t => t.task_period_id === period.id);
-                if (periodTasks.length === 0) return;
+            // 2. Gather groups for this period, sorted by position
+            const sortedGroups: (TaskGroup)[] = [...groups].sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+            const hasUnassignedGroupTasks = tasksForPeriod.some(
+              t => !t.group_id || !groups.some(g => g.id === t.group_id)
+            );
+            
+            const groupOptions = [...sortedGroups];
+            if (hasUnassignedGroupTasks) {
+              const virtualGroup: TaskGroup = {
+                id: 'null_group',
+                user_id: 'user-default',
+                name: 'Geral / Outros',
+                description: '',
+                color: 'blue',
+                position: 9999,
+                created_at: '',
+                updated_at: ''
+              };
+              groupOptions.push(virtualGroup);
+            }
 
-                groupedStructure.push({
-                  group,
-                  category: isNullCat ? null : category as any,
-                  period,
-                  tasks: periodTasks
+            const periodGroups: {
+              group: TaskGroup;
+              categories: {
+                category: TaskCategory | null;
+                tasks: Task[];
+              }[];
+            }[] = [];
+
+            groupOptions.forEach(group => {
+              // Find tasks in this group for this period
+              const tasksForGroup = tasksForPeriod.filter(t => {
+                if (group.id === 'null_group') {
+                  return !t.group_id || !groups.some(g => g.id === t.group_id);
+                }
+                return t.group_id === group.id;
+              });
+
+              if (tasksForGroup.length === 0) return;
+
+              // 3. Gather categories for this group
+              const groupCats = categories
+                .filter(c => c.group_id === group.id)
+                .sort((a: any, b: any) => {
+                  if (a.position !== undefined && b.position !== undefined) {
+                    return a.position - b.position;
+                  }
+                  return a.name.localeCompare(b.name);
+                });
+
+              const hasUnassignedCategoryTasks = tasksForGroup.some(
+                t => !t.category_id || !categories.some(c => c.id === t.category_id && c.group_id === group.id)
+              );
+
+              const categoryOptions: (TaskCategory | null)[] = [...groupCats];
+              if (hasUnassignedCategoryTasks) {
+                categoryOptions.push(null);
+              }
+
+              const groupCategories: {
+                category: TaskCategory | null;
+                tasks: Task[];
+              }[] = [];
+
+              categoryOptions.forEach(category => {
+                const tasksForCat = tasksForGroup.filter(t => {
+                  if (category === null) {
+                    return !t.category_id || !categories.some(c => c.id === t.category_id && c.group_id === group.id);
+                  }
+                  return t.category_id === category.id;
+                });
+
+                if (tasksForCat.length === 0) return;
+
+                // Sort tasks strictly by position
+                const sortedTasks = [...tasksForCat].sort((a, b) => a.position - b.position);
+
+                groupCategories.push({
+                  category,
+                  tasks: sortedTasks
                 });
               });
 
-              // Any tasks without a period mapping inside this folder
-              const noPeriodTasks = catTasks.filter(t => !t.task_period_id || !periods.some(p => p.id === t.task_period_id));
-              if (noPeriodTasks.length > 0) {
-                groupedStructure.push({
-                  group,
-                  category: isNullCat ? null : category as any,
-                  period: null,
-                  tasks: noPeriodTasks
-                });
-              }
+              periodGroups.push({
+                group,
+                categories: groupCategories
+              });
+            });
+
+            groupedStructure.push({
+              period,
+              groups: periodGroups
             });
           });
-
-          // Absolute general orphans mapping fallback
-          const genericOrphans = filteredTasks.filter(t => !t.group_id || !groups.some(g => g.id === t.group_id));
-          if (genericOrphans.length > 0) {
-            const virtualGroup = { id: 'null', name: 'Geral / Outros', description: '', color: 'blue', position: 9999, created_at: '', updated_at: '' } as TaskGroup;
-            
-            periods.forEach(period => {
-              const periodTasks = genericOrphans.filter(t => t.task_period_id === period.id);
-              if (periodTasks.length === 0) return;
-              groupedStructure.push({
-                group: virtualGroup,
-                category: null,
-                period,
-                tasks: periodTasks
-              });
-            });
-
-            const absoluteOrphans = genericOrphans.filter(t => !t.task_period_id || !periods.some(p => p.id === t.task_period_id));
-            if (absoluteOrphans.length > 0) {
-              groupedStructure.push({
-                group: virtualGroup,
-                category: null,
-                period: null,
-                tasks: absoluteOrphans
-              });
-            }
-          }
 
           if (groupedStructure.length === 0) {
             return (
@@ -791,163 +848,156 @@ export default function DashboardPage() {
           }
 
           return (
-            <div className="space-y-5">
-              {groupedStructure.map((item, idx) => {
-                const groupColorHex = ColorToHex(item.group.color);
-                const sortedTasks = [...item.tasks].sort((a, b) => {
-                  const urgencyRank = { overdue: 4, urgent: 3, moderate: 2, low: 1 };
-                  const rankA = urgencyRank[a.urgency_level] || 1;
-                  const rankB = urgencyRank[b.urgency_level] || 1;
-                  if (rankB !== rankA) return rankB - rankA;
-                  return a.position - b.position;
-                });
-
+            <div className="space-y-6">
+              {groupedStructure.map((pBlock, pIdx) => {
+                const pColor = pBlock.period?.color || '#a1a1aa';
+                
                 return (
-                  <div 
-                    key={`grouped-block-${idx}`} 
-                    className={`border-2 rounded-xl overflow-hidden ${bgStyle} ${borderStyle} transition-all`}
-                    style={{ borderLeft: `5px solid ${groupColorHex}` }}
-                  >
-                    {/* Header showing Group name, Group color, Category, and Period */}
-                    <div className="p-3 bg-black/50 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                      <div className="flex flex-wrap items-center gap-2 font-mono text-xs uppercase text-left">
-                        {/* Group Name & Bullet */}
-                        <div className="flex items-center gap-1.5 font-black shrink-0" style={{ color: groupColorHex }}>
-                          <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: groupColorHex, boxShadow: `0 0 6px ${groupColorHex}` }} />
-                          {item.group.name}
-                        </div>
-
-                        {/* Category Name */}
-                        {item.category && (
-                          <>
-                            <span className="opacity-40 font-light select-none">/</span>
-                            <span className="text-white/90 font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10 shrink-0">
-                              {item.category.name}
-                            </span>
-                          </>
-                        )}
-
-                        {/* Period Name */}
-                        <span className="opacity-40 font-light select-none">/</span>
-                        {item.period ? (
-                          <span 
-                            className="text-white font-mono tracking-wide flex items-center gap-1 px-2 py-0.5 rounded border shrink-0"
-                            style={{ borderColor: `${item.period.color}35`, color: item.period.color, backgroundColor: `${item.period.color}10` }}
-                          >
-                            <span className="text-xs leading-none">{item.period.icon || '☀️'}</span>
-                            <span>{item.period.name}</span>
-                          </span>
-                        ) : (
-                          <span className="text-white/40 italic font-mono lowercase shrink-0">[sem período]</span>
-                        )}
-                      </div>
-
-                      <span className="text-[10px] font-mono opacity-50 shrink-0 font-bold bg-zinc-900/80 px-2 py-0.5 rounded border border-white/5">
-                        {sortedTasks.length} {sortedTasks.length === 1 ? 'Meta' : 'Metas'}
+                  <div key={pBlock.period?.id || `period-null-${pIdx}`} className="space-y-4">
+                    {/* Period Level Divider Banner */}
+                    <div className="border-b-2 border-dashed border-white/10 pb-2.5 pt-2 flex items-center justify-between">
+                      <h3 className="text-sm md:text-sm font-black tracking-widest flex items-center gap-2 uppercase font-mono" style={{ color: pColor }}>
+                        <span className="text-base leading-none">{pBlock.period?.icon || '⏱️'}</span>
+                        <span>{pBlock.period?.name || 'Sem Período / Livre'}</span>
+                      </h3>
+                      <span className="text-[9px] font-mono opacity-50 font-bold bg-zinc-900/80 px-2 py-0.5 rounded border border-white/5">
+                        {pBlock.groups.reduce((sum, g) => sum + g.categories.reduce((s2, c) => s2 + c.tasks.length, 0), 0)} metas
                       </span>
                     </div>
 
-                    {/* Task cards listing */}
-                    <div className="p-4 space-y-2.5 bg-black/25">
-                      {sortedTasks.map(task => (
-                        <div 
-                          key={task.id}
-                          className={`border p-3.5 rounded-lg bg-black/45 hover:bg-black/85 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group transition-all ${
-                            task.is_completed ? 'border-emerald-500/10 opacity-40' : 'border-white/10'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3 overflow-hidden text-left font-mono">
-                            <button
-                              onClick={() => handleToggleTaskChecked(task.id, task.is_completed)}
-                              className={`w-5 h-5 border flex items-center justify-center text-xs rounded shrink-0 transition-all font-black mt-0.5 cursor-pointer ${
-                                task.is_completed 
-                                  ? 'border-emerald-500 bg-emerald-500 text-black' 
-                                  : 'border-white/30 hover:border-[var(--color-amber)] text-transparent bg-transparent'
-                              }`}
-                            >
-                              ✓
-                            </button>
-                            
-                            <div className="overflow-hidden space-y-1">
-                              <h4 className={`text-xs font-bold uppercase tracking-wide leading-tight ${
-                                task.is_completed ? 'line-through text-white/40 font-normal' : 'text-white'
-                              }`}>
-                                {task.title}
-                              </h4>
-                              
-                              {task.description && (
-                                <p className="text-[10px] text-white/50 leading-relaxed font-mono">
-                                  {task.description}
-                                </p>
-                              )}
-
-                              {/* Badges nas tarefas */}
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                <span className={`text-[8.5px] px-1.5 py-0.5 uppercase font-extrabold tracking-widest inline-block ${
-                                  task.urgency_level === 'urgent' || task.urgency_level === 'overdue' 
-                                    ? 'bg-rose-950/40 text-rose-400 border border-rose-800' 
-                                    : 'bg-[var(--color-amber)]/20 text-[var(--color-amber)] border border-[var(--color-amber)]/30'
-                                }`}>
-                                  {task.urgency_level}
+                    {/* Groups under this Period */}
+                    <div className="space-y-4 pl-0 sm:pl-3">
+                      {pBlock.groups.map((gBlock, gIdx) => {
+                        const groupColorHex = ColorToHex(gBlock.group.color);
+                        
+                        return (
+                          <div 
+                            key={gBlock.group.id || `group-null-${gIdx}`}
+                            className={`border-2 rounded-xl overflow-hidden ${bgStyle} ${borderStyle} transition-all p-4 space-y-3`}
+                            style={{ borderLeft: `5px solid ${groupColorHex}` }}
+                          >
+                            {/* Group Header */}
+                            <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                              <span className="font-extrabold flex items-center gap-1.5 font-mono text-[11px] uppercase" style={{ color: groupColorHex }}>
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: groupColorHex, boxShadow: `0 0 6px ${groupColorHex}` }} />
+                                {gBlock.group.name}
+                              </span>
+                              {gBlock.group.description && (
+                                <span className="text-[9.5px] text-white/40 italic font-mono max-w-[200px] sm:max-w-xs truncate uppercase">
+                                  {gBlock.group.description}
                                 </span>
+                              )}
+                            </div>
 
-                                {task.group_name && (
-                                  <span className="px-1.5 py-0.5 text-[8.5px] uppercase font-bold rounded" style={{ backgroundColor: `${task.group_color_hex || groupColorHex}15`, color: task.group_color_hex || groupColorHex, border: `1px solid ${task.group_color_hex || groupColorHex}30` }}>
-                                    {task.group_name}
-                                  </span>
-                                )}
+                            {/* Categories under this Group */}
+                            <div className="space-y-3">
+                              {gBlock.categories.map((cBlock, cIdx) => {
+                                const catName = cBlock.category?.name || 'Geral';
+                                
+                                return (
+                                  <div key={cBlock.category?.id || `cat-null-${cIdx}`} className="space-y-2">
+                                    {/* Category Subheader */}
+                                    <div className="flex items-center gap-2 text-[9.5px] font-mono text-white/70 uppercase font-black tracking-wider">
+                                      <span className="opacity-40">└─</span>
+                                      <Folder className="w-3.5 h-3.5 opacity-60 text-white/50" />
+                                      <span className="bg-white/5 px-1.5 py-0.5 rounded border border-white/10 shrink-0 select-none">
+                                        {catName}
+                                      </span>
+                                      <span className="h-px bg-white/5 flex-1" />
+                                      <span className="opacity-35 text-[8.5px]">{cBlock.tasks.length} {cBlock.tasks.length === 1 ? 'meta' : 'metas'}</span>
+                                    </div>
 
-                                {task.category_name && (
-                                  <span className="px-1.5 py-0.5 text-[8.5px] uppercase font-semibold rounded bg-zinc-800/80 text-zinc-300 border border-zinc-700/50">
-                                    {task.category_name}
-                                  </span>
-                                )}
+                                    {/* Checklist Tasks in this Category */}
+                                    <div className="pl-4 sm:pl-6 space-y-2">
+                                      {cBlock.tasks.map(task => (
+                                        <div 
+                                          key={task.id}
+                                          className={`border p-3.5 rounded-lg bg-black/45 hover:bg-black/85 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group transition-all ${
+                                            task.is_completed ? 'border-emerald-500/10 opacity-40' : 'border-white/10'
+                                          }`}
+                                        >
+                                          <div className="flex items-start gap-3 overflow-hidden text-left font-mono">
+                                            <button
+                                              onClick={() => handleToggleTaskChecked(task.id, task.is_completed)}
+                                              className={`w-5 h-5 border flex items-center justify-center text-xs rounded shrink-0 transition-all font-black mt-0.5 cursor-pointer ${
+                                                task.is_completed 
+                                                  ? 'border-emerald-500 bg-emerald-500 text-black' 
+                                                  : 'border-white/30 hover:border-[var(--color-amber)] text-transparent bg-transparent'
+                                              }`}
+                                            >
+                                              ✓
+                                            </button>
+                                            
+                                            <div className="overflow-hidden space-y-1">
+                                              <h4 className={`text-xs font-bold uppercase tracking-wide leading-tight ${
+                                                task.is_completed ? 'line-through text-white/40 font-normal' : 'text-white'
+                                              }`}>
+                                                {task.title}
+                                              </h4>
+                                              
+                                              {task.description && (
+                                                <p className="text-[10px] text-white/50 leading-relaxed font-mono">
+                                                  {task.description}
+                                                </p>
+                                              )}
 
-                                {task.period_name && (
-                                  <span className="px-1.5 py-0.5 text-[8.5px] uppercase font-semibold rounded border" style={{ borderColor: `${task.period_color}35`, color: task.period_color, backgroundColor: `${task.period_color}10` }}>
-                                    {task.period_icon} {task.period_name}
-                                  </span>
-                                )}
+                                              {/* Badges on Tasks inside Categories */}
+                                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                                <span className={`text-[8.5px] px-1.5 py-0.5 uppercase font-extrabold tracking-widest inline-block ${
+                                                  task.urgency_level === 'urgent' || task.urgency_level === 'overdue' 
+                                                    ? 'bg-rose-950/40 text-rose-400 border border-rose-800' 
+                                                    : 'bg-[var(--color-amber)]/20 text-[var(--color-amber)] border border-[var(--color-amber)]/30'
+                                                }`}>
+                                                  {task.urgency_level}
+                                                </span>
 
-                                {task.due_date && (
-                                  <span className="text-[8.5px] text-white/50 font-mono font-bold uppercase flex items-center gap-1 border border-white/5 bg-white/5 px-1 py-px rounded">
-                                    <Calendar className="w-2.5 h-2.5" /> {new Date(task.due_date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}
-                                  </span>
-                                )}
-                              </div>
+                                                {task.due_date && (
+                                                  <span className="text-[8.5px] text-white/50 font-mono font-bold uppercase flex items-center gap-1 border border-white/5 bg-white/5 px-1 py-px rounded">
+                                                    <Calendar className="w-2.5 h-2.5" /> {new Date(task.due_date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Trigger Actions */}
+                                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto pt-2 sm:pt-0 border-t border-white/5 sm:border-0 w-full sm:w-auto justify-end">
+                                            {!task.is_completed && (
+                                              <button
+                                                onClick={() => handleStartFocusOnTask(task)}
+                                                title="Iniciar Foco"
+                                                className="p-1.5 rounded bg-white/5 text-[var(--color-amber)] hover:bg-[var(--color-amber)] hover:text-black transition-all cursor-pointer"
+                                              >
+                                                <Play className="w-3.5 h-3.5 fill-current" />
+                                              </button>
+                                            )}
+
+                                            <button
+                                              onClick={() => { feedbackTap(); setEditingTask(task); }}
+                                              title="Editar"
+                                              className="p-1.5 rounded bg-white/5 text-slate-300 hover:bg-white/15 transition-all cursor-pointer"
+                                            >
+                                              <Edit2 className="w-3.5 h-3.5" />
+                                            </button>
+
+                                            <button
+                                              onClick={() => handleDeleteTask(task.id)}
+                                              title="Excluir"
+                                              className="p-1.5 rounded bg-white/5 text-rose-400 hover:text-white hover:bg-rose-950/50 transition-all cursor-pointer"
+                                            >
+                                              <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
-
-                          {/* Trigger actions */}
-                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto pt-2 sm:pt-0 border-t border-white/5 sm:border-0 w-full sm:w-auto justify-end">
-                            {!task.is_completed && (
-                              <button
-                                onClick={() => handleStartFocusOnTask(task)}
-                                title="Iniciar Foco"
-                                className="p-1.5 rounded bg-white/5 text-[var(--color-amber)] hover:bg-[var(--color-amber)] hover:text-black transition-all cursor-pointer"
-                              >
-                                <Play className="w-3.5 h-3.5 fill-current" />
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => { feedbackTap(); setEditingTask(task); }}
-                              title="Editar"
-                              className="p-1.5 rounded bg-white/5 text-slate-300 hover:bg-white/15 transition-all cursor-pointer"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-
-                            <button
-                              onClick={() => handleDeleteTask(task.id)}
-                              title="Excluir"
-                              className="p-1.5 rounded bg-white/5 text-rose-400 hover:text-white hover:bg-rose-950/50 transition-all cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );
