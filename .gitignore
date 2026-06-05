@@ -5,3 +5,23 @@ coverage/
 *.log
 .env*
 !.env.example
+# Variáveis de ambiente
+.env
+.env.local
+.env.*.local
+
+# Build do Next.js
+.next/
+out/
+
+# Dependências
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
