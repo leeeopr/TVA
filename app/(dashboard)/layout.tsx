@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Terminal, Clock, CheckSquare, Sliders, Monitor, Cpu, Power } from 'lucide-react';
+import { Terminal, Clock, CheckSquare, Sliders, Monitor, Cpu, Power, Briefcase } from 'lucide-react';
 import { db } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 import { useProductivityStore } from '@/stores/productivityStore';
@@ -95,7 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       } else if (e.key === 'F3') {
         e.preventDefault();
         sounds.playButtonSwitch();
-        router.push('/dashboard');
+        router.push('/projects');
       } else if (e.key === 'F4') {
         e.preventDefault();
         sounds.playButtonSwitch();
@@ -260,6 +260,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Pomodoro CRT
               </span>
               <span className="hidden lg:inline text-[9px] opacity-70">[F2]</span>
+            </Link>
+
+            <Link
+              href="/projects"
+              onClick={() => sounds.playButtonSwitch()}
+              className={`flex-1 lg:flex-none py-2 px-3 text-left rounded flex items-center justify-between gap-2 border text-xs tracking-wider transition-all uppercase ${
+                pathname === '/projects' 
+                  ? 'bg-[var(--color-amber)] text-black border-[var(--color-amber)] font-black' 
+                  : 'bg-transparent text-[var(--color-amber)] border-[var(--color-amber)]/30 hover:bg-[var(--color-amber)]/10'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4" />
+                Projetos DEV
+              </span>
+              <span className="hidden lg:inline text-[9px] opacity-70">[F3]</span>
             </Link>
 
             <Link

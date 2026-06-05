@@ -13,6 +13,21 @@ import {
   reorderTaskPeriods as reorderSupabaseTaskPeriods,
   deleteTaskPeriod as deleteSupabaseTaskPeriod
 } from './supabase/tasks';
+import {
+  getProjects as getSupabaseProjects,
+  createProject as createSupabaseProject,
+  updateProject as updateSupabaseProject,
+  deleteProject as deleteSupabaseProject,
+  getProjectPhases as getSupabaseProjectPhases,
+  createProjectPhase as createSupabaseProjectPhase,
+  updateProjectPhase as updateSupabaseProjectPhase,
+  deleteProjectPhase as deleteSupabaseProjectPhase,
+  reorderProjectPhases as reorderSupabaseProjectPhases,
+  getProjectIssues as getSupabaseProjectIssues,
+  createProjectIssue as createSupabaseProjectIssue,
+  updateProjectIssue as updateSupabaseProjectIssue,
+  deleteProjectIssue as deleteSupabaseProjectIssue
+} from './supabase/projects';
 
 // ==========================================
 // RETRO-FUTURISTIC TERMINAL DATABANK ADAPTER
@@ -26,6 +41,40 @@ export interface Profile {
   username: string;
   avatar_url: string;
   created_at: string;
+}
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectPhase {
+  id: string;
+  project_id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectIssue {
+  id: string;
+  project_id: string;
+  phase_id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  is_completed: boolean;
+  position: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskGroup {
@@ -226,6 +275,9 @@ export class db {
   private static ramTasks: Task[] = [];
   private static ramSessions: PomodoroSession[] = [];
   private static ramPresets: PomodoroPreset[] = [];
+  private static ramProjects: Project[] = [];
+  private static ramPhases: ProjectPhase[] = [];
+  private static ramIssues: ProjectIssue[] = [];
 
   // Terminal logging
   static addLog(text: string, type: 'info' | 'success' | 'warning' | 'error' | 'system' = 'info') {
@@ -578,6 +630,43 @@ export class db {
 
       if (!statsErr && statsData) {
         localStorage.setItem(`RETRO_OS_stats_${this.cachedUserId}`, JSON.stringify(statsData));
+      }
+
+      // 8. Projects module synchronization (fails safely if SQL schemas not loaded)
+      try {
+        const { data: projectsData, error: projectsErr } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('user_id', this.cachedUserId)
+          .order('created_at', { ascending: false });
+        if (!projectsErr && projectsData) {
+          this.ramProjects = projectsData;
+        }
+
+        const { data: phasesData, error: phasesErr } = await supabase
+          .from('project_phases')
+          .select('*')
+          .eq('user_id', this.cachedUserId)
+          .order('position', { ascending: true });
+        if (!phasesErr && phasesData) {
+          this.ramPhases = phasesData;
+        }
+
+        const { data: issuesData, error: issuesErr } = await supabase
+          .from('project_issues')
+          .select('*')
+          .eq('user_id', this.cachedUserId)
+          .order('position', { ascending: true });
+        if (!issuesErr && issuesData) {
+          this.ramIssues = issuesData;
+        }
+        
+        if (!projectsErr && !phasesErr && !issuesErr) {
+          this.addLog(`CLOUD_SYNC: ${projectsData?.length || 0} PROJECTS AND ASSOCIATED WORKSTREAMS ALIGNED.`, 'success');
+        }
+      } catch (projErr) {
+        // Safe skip on unmigrated / outdated database clients
+        console.warn("Skipped database loading of projects; tables might not exist yet.", projErr);
       }
 
       this.triggerDataRefreshCallbacks();
@@ -1343,6 +1432,314 @@ export class db {
         this.addLog(`CLOUD_WRITE_ERR: PERIOD REORDER EXCEPTION: ${err.message}`, 'error');
       }
     }
+    this.triggerDataRefreshCallbacks();
+  }
+
+  // ==========================================
+  // PROJECTS MODULE ACTIONS
+  // ==========================================
+
+  static getProjects(includeArchived = false): Project[] {
+    return includeArchived 
+      ? this.ramProjects 
+      : this.ramProjects.filter(p => !p.is_archived);
+  }
+
+  static async saveProject(name: string, description: string | null = null): Promise<Project> {
+    const pId = generateUUID();
+    const newProject: Project = {
+      id: pId,
+      user_id: this.cachedUserId,
+      name,
+      description,
+      is_archived: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramProjects.unshift(newProject);
+    this.addLog(`PROJECT LOGGED: "${name}" IN CENTRAL TERMINAL`, 'success');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await createSupabaseProject(newProject);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PROJECT LOG FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return newProject;
+  }
+
+  static async updateProject(id: string, updates: Partial<Project>): Promise<Project[]> {
+    this.ramProjects = this.ramProjects.map(p => {
+      if (p.id === id) {
+        return { ...p, ...updates, updated_at: new Date().toISOString() };
+      }
+      return p;
+    });
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updateSupabaseProject(id, updates);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PROJECT UPDATE FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramProjects;
+  }
+
+  static async deleteProject(id: string): Promise<Project[]> {
+    this.ramProjects = this.ramProjects.filter(p => p.id !== id);
+    this.ramPhases = this.ramPhases.filter(ph => ph.project_id !== id);
+    this.ramIssues = this.ramIssues.filter(iss => iss.project_id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deleteSupabaseProject(id);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PROJECT DELETE FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramProjects;
+  }
+
+  // PHASES
+  static getProjectPhases(projectId: string): ProjectPhase[] {
+    return this.ramPhases
+      .filter(ph => ph.project_id === projectId)
+      .sort((a, b) => a.position - b.position);
+  }
+
+  static async saveProjectPhase(projectId: string, name: string, description: string | null = null): Promise<ProjectPhase> {
+    const id = generateUUID();
+    const position = this.ramPhases.filter(p => p.project_id === projectId).length;
+    const newPhase: ProjectPhase = {
+      id,
+      project_id: projectId,
+      user_id: this.cachedUserId,
+      name,
+      description,
+      position,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramPhases.push(newPhase);
+    this.addLog(`PHASE REGISTERED: "${name}" DIRECTED FOR PROJECT`, 'success');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await createSupabaseProjectPhase(newPhase);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PHASE WRITE FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return newPhase;
+  }
+
+  static async updateProjectPhase(id: string, updates: Partial<ProjectPhase>): Promise<ProjectPhase[]> {
+    this.ramPhases = this.ramPhases.map(ph => {
+      if (ph.id === id) {
+        return { ...ph, ...updates, updated_at: new Date().toISOString() };
+      }
+      return ph;
+    });
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updateSupabaseProjectPhase(id, updates);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PHASE EDIT FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramPhases;
+  }
+
+  static async deleteProjectPhase(id: string): Promise<ProjectPhase[]> {
+    this.ramPhases = this.ramPhases.filter(ph => ph.id !== id);
+    this.ramIssues = this.ramIssues.filter(iss => iss.phase_id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deleteSupabaseProjectPhase(id);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: PHASE PURGE FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramPhases;
+  }
+
+  static async reorderProjectPhases(projectId: string, reorderedPhases: ProjectPhase[]): Promise<void> {
+    const mapped = reorderedPhases.map((phase, idx) => ({ ...phase, position: idx }));
+    const idsToReorder = new Set(reorderedPhases.map(p => p.id));
+    this.ramPhases = [
+      ...this.ramPhases.filter(p => !idsToReorder.has(p.id)),
+      ...mapped
+    ];
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await reorderSupabaseProjectPhases(mapped);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_FAIL: PHASES REORDER REJECTED: ${err.message || err}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+  }
+
+  // ISSUES (PENDÊNCIAS)
+  static getProjectIssues(projectId: string): ProjectIssue[] {
+    return this.ramIssues
+      .filter(iss => iss.project_id === projectId)
+      .sort((a, b) => a.position - b.position);
+  }
+
+  static async saveProjectIssue(projectId: string, phaseId: string, title: string, description: string | null = null): Promise<ProjectIssue> {
+    const id = generateUUID();
+    const position = this.ramIssues.filter(iss => iss.phase_id === phaseId).length;
+    const newIssue: ProjectIssue = {
+      id,
+      project_id: projectId,
+      phase_id: phaseId,
+      user_id: this.cachedUserId,
+      title,
+      description,
+      is_completed: false,
+      position,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramIssues.push(newIssue);
+    this.addLog(`ISSUE ADDED: "${title}" SEEDED INTO WORKSTREAM`, 'success');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await createSupabaseProjectIssue(newIssue);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: ISSUE WRITE FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return newIssue;
+  }
+
+  static async updateProjectIssue(id: string, updates: Partial<ProjectIssue>): Promise<ProjectIssue[]> {
+    this.ramIssues = this.ramIssues.map(iss => {
+      if (iss.id === id) {
+        return { ...iss, ...updates, updated_at: new Date().toISOString() };
+      }
+      return iss;
+    });
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updateSupabaseProjectIssue(id, updates);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: ISSUE EDIT FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramIssues;
+  }
+
+  static async deleteProjectIssue(id: string): Promise<ProjectIssue[]> {
+    this.ramIssues = this.ramIssues.filter(iss => iss.id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deleteSupabaseProjectIssue(id);
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: ISSUE SCRUB FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramIssues;
+  }
+
+  // GENERATE TASK FROM ISSUE
+  static async generateTasksFromIssue(
+    issueId: string,
+    tasksData: Array<{
+      title: string;
+      description?: string | null;
+      groupId: string;
+      categoryId: string | null;
+      taskPeriodId: string | null;
+      dueDate: string | null;
+      timePeriod: string | null;
+    }>
+  ) {
+    const issue = this.ramIssues.find(iss => iss.id === issueId);
+    if (!issue) throw new Error("Pendência não encontrada");
+
+    this.addLog(`GENERATING ${tasksData.length} OPERATIONAL TASKS FOR ISSUE "${issue.title}"...`, 'info');
+
+    for (const t of tasksData) {
+      const taskId = generateUUID();
+      const resolvedUrgency = this.calculateUrgency(t.dueDate);
+      
+      const groupTasks = this.ramTasks.filter(task => task.group_id === t.groupId);
+      const maxPos = groupTasks.length > 0 ? Math.max(...groupTasks.map(task => task.position)) + 1 : 0;
+
+      const newTask: Task = {
+        id: taskId,
+        user_id: this.cachedUserId,
+        group_id: t.groupId,
+        category_id: t.categoryId,
+        task_period_id: t.taskPeriodId,
+        title: t.title,
+        description: t.description || null,
+        due_date: t.dueDate,
+        urgency_level: resolvedUrgency,
+        is_completed: false,
+        completed_at: null,
+        position: maxPos,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        time_period: t.timePeriod
+      };
+
+      this.ramTasks.push(newTask);
+
+      if (supabase && this.cachedUserId !== 'user-default') {
+        try {
+          const payload = {
+            id: taskId,
+            group_id: t.groupId,
+            category_id: t.categoryId,
+            task_period_id: t.taskPeriodId,
+            title: t.title,
+            description: t.description || null,
+            is_completed: false,
+            position: maxPos,
+            time_period: t.timePeriod,
+            project_issue_id: issueId
+          };
+          
+          const { error } = await supabase.from('tasks').insert(payload);
+          if (error) {
+            if (error.code === '42703') {
+              const prunedPayload = { ...payload };
+              delete (prunedPayload as any).project_issue_id;
+              await supabase.from('tasks').insert(prunedPayload);
+            } else {
+              throw error;
+            }
+          }
+        } catch (err: any) {
+          this.addLog(`TASK GENERATION CLOUD FAIL: ${err.message}`, 'error');
+        }
+      }
+    }
+
+    this.addLog(`TASKS COMPILED SUCCESSFULLY FOR WORKSTREAM RELAXATION.`, 'success');
     this.triggerDataRefreshCallbacks();
   }
 }

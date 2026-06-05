@@ -458,3 +458,71 @@ FOR UPDATE
 USING (auth.uid() = user_id)
 WITH CHECK (auth.uid() = user_id);
 
+
+-- =========================================================
+-- 13. PROJECTS MODULE
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS public.projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    is_archived BOOLEAN DEFAULT FALSE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.project_phases (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    position INTEGER DEFAULT 0 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.project_issues (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    phase_id UUID NOT NULL REFERENCES public.project_phases(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT,
+    is_completed BOOLEAN DEFAULT FALSE NOT NULL,
+    position INTEGER DEFAULT 0 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Check and add project_issue_id to tasks table if it does not exist
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS project_issue_id UUID REFERENCES public.project_issues(id) ON DELETE SET NULL;
+
+-- Enable RLS for projects
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_phases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.project_issues ENABLE ROW LEVEL SECURITY;
+
+-- Policies for projects
+DROP POLICY IF EXISTS "Users can manage their own projects." ON public.projects;
+CREATE POLICY "Users can manage their own projects." ON public.projects
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Policies for project_phases
+DROP POLICY IF EXISTS "Users can manage their own project phases." ON public.project_phases;
+CREATE POLICY "Users can manage their own project phases." ON public.project_phases
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Policies for project_issues
+DROP POLICY IF EXISTS "Users can manage their own project issues." ON public.project_issues;
+CREATE POLICY "Users can manage their own project issues." ON public.project_issues
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Indexes for Projects Module
+CREATE INDEX IF NOT EXISTS idx_projects_user_id ON public.projects(user_id);
+CREATE INDEX IF NOT EXISTS idx_project_phases_project_id ON public.project_phases(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_issues_phase_id ON public.project_issues(phase_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_issue_id ON public.tasks(project_issue_id);
+
