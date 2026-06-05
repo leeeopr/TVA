@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TVA</string>
+    <string name="title_activity_main">TVA</string>
+    <string name="package_name">com.tva.app</string>
+    <string name="custom_url_scheme">com.tva.app</string>
+</resources>
