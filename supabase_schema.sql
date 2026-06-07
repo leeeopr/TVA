@@ -526,3 +526,85 @@ CREATE INDEX IF NOT EXISTS idx_project_phases_project_id ON public.project_phase
 CREATE INDEX IF NOT EXISTS idx_project_issues_phase_id ON public.project_issues(phase_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_project_issue_id ON public.tasks(project_issue_id);
 
+
+-- =========================================================
+-- 14. WEEKLY PLANNING SYSTEM AND SUBJECTS (TOPICS)
+-- =========================================================
+
+-- Create topics table
+CREATE TABLE IF NOT EXISTS public.topics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    color_id UUID REFERENCES public.custom_colors(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Enable RLS for topics
+ALTER TABLE public.topics ENABLE ROW LEVEL SECURITY;
+
+-- Delete any existing policy to avoid warnings
+DROP POLICY IF EXISTS "Users can manage their own topics" ON public.topics;
+CREATE POLICY "Users can manage their own topics" ON public.topics
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Create index on user_id for topics
+CREATE INDEX IF NOT EXISTS idx_topics_user_id ON public.topics(user_id);
+
+
+-- Create weekly_plans table (representing a weekly sheet)
+CREATE TABLE IF NOT EXISTS public.weekly_plans (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    week_start_date DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    CONSTRAINT unique_user_week UNIQUE (user_id, week_start_date)
+);
+
+-- Enable RLS for weekly_plans
+ALTER TABLE public.weekly_plans ENABLE ROW LEVEL SECURITY;
+
+-- Policy for weekly_plans
+DROP POLICY IF EXISTS "Users can manage their own weekly plans" ON public.weekly_plans;
+CREATE POLICY "Users can manage their own weekly plans" ON public.weekly_plans
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Create index on user_id & week_start_date
+CREATE INDEX IF NOT EXISTS idx_weekly_plans_user_week ON public.weekly_plans(user_id, week_start_date);
+
+
+-- Create weekly_plan_topics table (foci scheduled for a day of a given weekly plan)
+CREATE TABLE IF NOT EXISTS public.weekly_plan_topics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    weekly_plan_id UUID NOT NULL REFERENCES public.weekly_plans(id) ON DELETE CASCADE,
+    topic_id UUID NOT NULL REFERENCES public.topics(id) ON DELETE CASCADE,
+    weekday INTEGER NOT NULL CHECK (weekday >= 0 AND weekday <= 6),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    CONSTRAINT unique_plan_topic_day UNIQUE (weekly_plan_id, topic_id, weekday)
+);
+
+-- Enable RLS for weekly_plan_topics
+ALTER TABLE public.weekly_plan_topics ENABLE ROW LEVEL SECURITY;
+
+-- Policy for weekly_plan_topics
+DROP POLICY IF EXISTS "Users can manage their own weekly plan topics" ON public.weekly_plan_topics;
+CREATE POLICY "Users can manage their own weekly plan topics" ON public.weekly_plan_topics
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Create index on weekly_plan_id
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_topics_plan_id ON public.weekly_plan_topics(weekly_plan_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_topics_topic_id ON public.weekly_plan_topics(topic_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_plan_topics_user_id ON public.weekly_plan_topics(user_id);
+
+
+-- Relation: Each task can optionally belong to a topic
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS topic_id UUID REFERENCES public.topics(id) ON DELETE SET NULL;
+
+-- Create index on tasks.topic_id
+CREATE INDEX IF NOT EXISTS idx_tasks_topic_id ON public.tasks(topic_id);
+
+

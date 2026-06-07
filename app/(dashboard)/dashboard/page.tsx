@@ -25,7 +25,7 @@ import {
 import { useProductivityStore } from '@/stores/productivityStore';
 import { useAuthStore } from '@/stores/authStore';
 import { sounds } from '@/lib/sounds';
-import { db, Task, TaskPeriod, TaskGroup, TaskCategory } from '@/lib/db';
+import { db, Task, TaskPeriod, TaskGroup, TaskCategory, Topic } from '@/lib/db';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -36,6 +36,9 @@ export default function DashboardPage() {
     periods,
     stats,
     settings, 
+    topics,
+    weeklyPlans,
+    weeklyPlanTopics,
     refreshData,
     setLinkedTask,
     setTimerMode,
@@ -62,6 +65,7 @@ export default function DashboardPage() {
   const [newTaskTimePeriod, setNewTaskTimePeriod] = useState('');
   const [newTaskGroupId, setNewTaskGroupId] = useState('');
   const [newTaskCategoryId, setNewTaskCategoryId] = useState('');
+  const [newTaskTopicId, setNewTaskTopicId] = useState('');
 
   // Local filtering states
   const [filterGroupId, setFilterGroupId] = useState('');
@@ -79,6 +83,16 @@ export default function DashboardPage() {
   const [periodFormIcon, setPeriodFormIcon] = useState('☀️');
   const [periodFormColor, setPeriodFormColor] = useState('#60a5fa');
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Inline creation states for first run
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDesc, setNewGroupDesc] = useState('');
+  const [newGroupColor, setNewGroupColor] = useState('blue');
+
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryGroupId, setNewCategoryGroupId] = useState('');
 
   // Initialize view telemetry
   useEffect(() => {
@@ -112,15 +126,6 @@ export default function DashboardPage() {
       unsub();
     };
   }, [loadDbExtras]);
-
-  // Ensure there is at least one folder group for task mapping
-  useEffect(() => {
-    if (isClient && groups.length === 0 && db.getGroups().length === 0) {
-      db.saveGroup('Metas', 'Metas Gerais', 'blue').then(() => {
-        loadDbExtras();
-      });
-    }
-  }, [isClient, groups.length, loadDbExtras]);
 
   // Trigger feedback sound
   const feedbackTap = () => {
@@ -171,9 +176,9 @@ export default function DashboardPage() {
         gid = groups[0].id;
       }
       if (!gid) {
-        const dummy = await db.saveGroup('Metas', 'Metas Gerais', 'blue');
-        gid = dummy.id;
-        loadDbExtras();
+        setFormError("Não é possível criar tarefas sem um Grupo / Dossiê cadastrado. Crie um grupo primeiro.");
+        sounds.playAlarmBreak();
+        return;
       }
 
       await db.saveTask(
@@ -183,18 +188,56 @@ export default function DashboardPage() {
         newTaskDesc || null,
         newTaskDueDate || null,
         null,
-        newTaskTimePeriod || null
+        newTaskTimePeriod || null,
+        newTaskTopicId || null
       );
 
       setNewTaskTitle('');
       setNewTaskDesc('');
       setNewTaskDueDate('');
       setNewTaskCategoryId('');
+      setNewTaskTopicId('');
       setIsCreatingTask(false);
       refreshData();
       db.addLog('SYSTEM: ENFORCED NEW OPERATION IN PIPELINE SUITE.', 'success');
     } catch (err: any) {
       setFormError(err.message || 'Erro ao salvar tarefa.');
+    }
+  };
+
+  const handleCreateGroupInline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+    try {
+      setFormError(null);
+      await db.saveGroup(newGroupName.trim(), newGroupDesc.trim() || null, newGroupColor);
+      setIsCreatingGroup(false);
+      setNewGroupName('');
+      setNewGroupDesc('');
+      loadDbExtras();
+      refreshData();
+      db.addLog(`SYSTEM: GRUPO DIRECT INTEL CREATED INLINE.`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      setFormError(err.message || 'Erro ao criar grupo.');
+    }
+  };
+
+  const handleCreateCategoryInline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim() || !newCategoryGroupId) return;
+    try {
+      setFormError(null);
+      await db.saveCategory(newCategoryGroupId, newCategoryName.trim(), null);
+      setIsCreatingCategory(false);
+      setNewCategoryName('');
+      setNewCategoryGroupId('');
+      loadDbExtras();
+      refreshData();
+      db.addLog(`SYSTEM: CATEGORIA DIRECT INTEL CREATED INLINE.`, 'success');
+    } catch (err: any) {
+      console.error(err);
+      setFormError(err.message || 'Erro ao criar categoria.');
     }
   };
 
@@ -325,77 +368,131 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 7. HUD RESUMO SUPERIOR */}
-      <div className={`border-2 p-5 rounded-xl space-y-4 bg-black/80 ${borderStyle} font-mono text-xs text-white`}>
-        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex flex-wrap gap-4 md:gap-8 items-center justify-around w-full md:w-auto">
-            <div className="flex items-center gap-2">
-              <span className="opacity-60 uppercase text-[9px] tracking-widest block font-bold">Pendentes:</span>
-              <span className={`text-xl font-black ${textStyle}`}>{totalPending}</span>
-            </div>
-            <div className="border-r border-[var(--color-amber)]/20 h-5 hidden md:block" />
-            <div className="flex items-center gap-2">
-              <span className="opacity-60 uppercase text-[9px] tracking-widest block font-bold">Concluídas Hoje:</span>
-              <span className={`text-xl font-black ${textStyle}`}>{totalCompletedToday}</span>
-            </div>
-            <div className="border-r border-[var(--color-amber)]/20 h-5 hidden md:block" />
-            <div className="flex items-center gap-2">
-              <span className="opacity-60 uppercase text-[9px] tracking-widest block font-bold">Progresso:</span>
-              <span className={`text-xl font-black ${textStyle}`}>{progressPercent}%</span>
-            </div>
-          </div>
+      {/* 7. HUD RESUMO SUPERIOR - 5 INDICADORES CRT OBRIGATÓRIOS */}
+      {(() => {
+        // Calculate date of current week's Monday
+        const calculateMonday = () => {
+          const today = new Date();
+          const day = today.getDay();
+          const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+          const m = new Date(today.setDate(diff));
+          m.setHours(0, 0, 0, 0);
+          return m;
+        };
 
-          {/* Dynamic progress bar indicator */}
-          <div className="w-full md:w-64 h-3.5 border border-[var(--color-amber)]/35 p-0.5 rounded">
-            <div 
-              className="h-full bg-[var(--color-amber)] transition-all duration-300 rounded-sm"
-              style={{ width: `${progressPercent}%`, boxShadow: '0 0 10px var(--color-amber-glow)' }}
-            />
+        const mondayStr = calculateMonday().toISOString().split('T')[0];
+        const dayIdx = new Date().getDay(); 
+        const currentActivePlan = weeklyPlans.find(wp => wp.week_start_date === mondayStr);
+
+        const scheduledWptsToday = currentActivePlan
+          ? weeklyPlanTopics.filter(wpt => wpt.weekly_plan_id === currentActivePlan.id && wpt.weekday === dayIdx)
+          : [];
+
+        const todaysTopicsCount = scheduledWptsToday
+          .map(wpt => topics.find(tp => tp.id === wpt.topic_id))
+          .filter(tp => tp !== undefined).length;
+
+        const openTasksCount = tasks.filter(t => !t.is_completed).length;
+        const urgentTasksCount = tasks.filter(t => !t.is_completed && t.urgency_level === 'urgent').length;
+        const completedTodayCount = tasks.filter(t => t.is_completed).length; 
+
+        const todaysDateFormatted = new Date().toLocaleDateString('pt-BR', { 
+          weekday: 'long', 
+          day: '2-digit', 
+          month: '2-digit' 
+        }).toUpperCase();
+
+        return (
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            {/* INDICADOR 1: DATA HOJE */}
+            <div className={`border-2 p-3 rounded-xl bg-black/80 flex flex-col justify-between h-[85px] uppercase font-mono ${borderStyle}`}>
+              <span className="opacity-60 text-[8px] tracking-widest block font-extrabold uppercase">📅 Virtual Date</span>
+              <span className={`text-[10px] md:text-[11px] font-black truncate text-emerald-400`} title={todaysDateFormatted}>
+                {todaysDateFormatted}
+              </span>
+              <span className="text-[7.5px] opacity-40 font-mono tracking-widest">[ SYSTEM_CLOCK ]</span>
+            </div>
+
+            {/* INDICADOR 2: SCHEDULED SUBJECTS (ASSUNTOS AGENDADOS) */}
+            <div className={`border-2 p-3 rounded-xl bg-black/80 flex flex-col justify-between h-[85px] uppercase font-mono ${borderStyle}`}>
+              <span className="opacity-60 text-[8px] tracking-widest block font-extrabold uppercase">📚 Focos Hoje</span>
+              <span className={`text-lg font-black ${textStyle}`}>
+                {todaysTopicsCount}
+              </span>
+              <span className="text-[7.5px] opacity-40 font-mono tracking-widest">[ PLAN_TOPICS ]</span>
+            </div>
+
+            {/* INDICADOR 3: OPEN TASKS (TAREFA ABERTA) */}
+            <div className={`border-2 p-3 rounded-xl bg-black/80 flex flex-col justify-between h-[85px] uppercase font-mono ${borderStyle}`}>
+              <span className="opacity-60 text-[8px] tracking-widest block font-extrabold uppercase">⏺ Metas Abertas</span>
+              <span className={`text-lg font-black ${textStyle}`}>
+                {openTasksCount}
+              </span>
+              <span className="text-[7.5px] opacity-40 font-mono tracking-widest">[ QUEUE_LIMIT ]</span>
+            </div>
+
+            {/* INDICADOR 4: URGENT TASKS (TAREFA URGENTE) */}
+            <div className={`border-2 p-3 rounded-xl bg-black/80 flex flex-col justify-between h-[85px] uppercase font-mono ${borderStyle}`}>
+              <span className="opacity-60 text-[8px] tracking-widest block font-extrabold uppercase">⚡ Urgentes</span>
+              <span className={`text-lg font-black ${urgentTasksCount > 0 ? 'text-rose-400' : textStyle}`}>
+                {urgentTasksCount}
+              </span>
+              <span className="text-[7.5px] opacity-40 font-mono tracking-widest">[ DANGER_INDEX ]</span>
+            </div>
+
+            {/* INDICADOR 5: COMPLETED TODAY */}
+            <div className={`border-2 p-3 rounded-xl bg-black/80 flex flex-col justify-between h-[85px] uppercase font-mono ${borderStyle}`}>
+              <span className="opacity-60 text-[8px] tracking-widest block font-extrabold uppercase">✓ Concluídas</span>
+              <span className={`text-lg font-black ${textStyle}`}>
+                {completedTodayCount}
+              </span>
+              <span className="text-[7.5px] opacity-40 font-mono tracking-widest">[ COMPLETED_DAY ]</span>
+            </div>
           </div>
+        );
+      })()}
+
+      {/* METRICS BY OPERATIONAL PERIOD ACCORDION BOX */}
+      <div className={`border-2 p-4 rounded-xl space-y-3 bg-black/80 font-mono text-xs text-white ${borderStyle}`}>
+        <div className="text-[9px] font-black uppercase text-[var(--color-amber)]/75 tracking-widest">
+          📂 [ Estatísticas por Período Operacional ]
         </div>
+        {periods.length === 0 ? (
+          <div className="opacity-40 text-[10px] uppercase italic">Nenhum período operacional carregado do Supabase.</div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {periods.map(p => {
+              const periodTasks = tasks.filter(t => t.task_period_id === p.id);
+              const pending = periodTasks.filter(t => !t.is_completed).length;
+              const completed = periodTasks.filter(t => t.is_completed).length;
+              const total = pending + completed;
+              const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+              const pColor = p.color || '#60a5fa';
 
-        {/* 9. METRICS BY OPERATIONAL PERIOD */}
-        <div className="border-t border-white/5 pt-3.5 space-y-2">
-          <div className="text-[9px] font-black uppercase text-[var(--color-amber)]/75 tracking-widest">
-            📂 [ Estatísticas por Período Operacional ]
-          </div>
-          {periods.length === 0 ? (
-            <div className="opacity-40 text-[10px] uppercase italic">Nenhum período operacional carregado do Supabase.</div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {periods.map(p => {
-                const periodTasks = tasks.filter(t => t.task_period_id === p.id);
-                const pending = periodTasks.filter(t => !t.is_completed).length;
-                const completed = periodTasks.filter(t => t.is_completed).length;
-                const total = pending + completed;
-                const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-                const pColor = p.color || '#60a5fa';
-
-                return (
-                  <div key={p.id} className="border border-white/5 bg-zinc-950/60 p-2.5 rounded flex flex-col justify-between gap-1.5 uppercase font-mono text-[9.5px]">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold flex items-center gap-1.5 font-mono" style={{ color: pColor }}>
-                        <span className="text-xs leading-none">{p.icon || '☀️'}</span>
-                        {p.name}
-                      </span>
-                      <span className="opacity-55 tracking-widest">[ {pending}P // {completed}D ]</span>
+              return (
+                <div key={p.id} className="border border-white/5 bg-zinc-950/60 p-2.5 rounded flex flex-col justify-between gap-1.5 uppercase font-mono text-[9.5px]">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold flex items-center gap-1.5 font-mono" style={{ color: pColor }}>
+                      <span className="text-xs leading-none">{p.icon || '☀️'}</span>
+                      {p.name}
+                    </span>
+                    <span className="opacity-55 tracking-widest">[ {pending}P // {completed}D ]</span>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[8px] opacity-70 font-mono">
+                      <span>Tarefas: {total}</span>
+                      <span>Progresso: {percent}%</span>
                     </div>
-                    
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[8px] opacity-70 font-mono">
-                        <span>Tarefas: {total}</span>
-                        <span>Progresso: {percent}%</span>
-                      </div>
-                      <div className="w-full bg-black border border-white/10 h-1.5 p-px rounded-sm">
-                        <div className="h-full rounded-sm transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: pColor, boxShadow: `0 0 5px ${pColor}` }} />
-                      </div>
+                    <div className="w-full bg-black border border-white/10 h-1.5 p-px rounded-sm">
+                      <div className="h-full rounded-sm transition-all duration-500" style={{ width: `${percent}%`, backgroundColor: pColor, boxShadow: `0 0 5px ${pColor}` }} />
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* COLLAPSIBLE TASK REGISTER FORM */}
@@ -494,6 +591,20 @@ export default function DashboardPage() {
                       onChange={(e) => setNewTaskDueDate(e.target.value)}
                       className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Assunto / Foco Relacionado</label>
+                    <select
+                      value={newTaskTopicId}
+                      onChange={(e) => setNewTaskTopicId(e.target.value)}
+                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer truncate uppercase text-white"
+                    >
+                      <option value="">Livre / Sem Assunto</option>
+                      {topics.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
@@ -693,6 +804,160 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* SEÇÃO ADICIONAL: CAMADA SUPERIOR DE PLANEJAMENTO SEMANAL (ASSUNTOS DE HOJE) */}
+      <div className="space-y-4 font-mono">
+        <div className="flex justify-between items-center border-b border-[var(--color-amber)]/20 pb-1.5 font-mono">
+          <h2 className="text-xs font-black text-[var(--color-amber)] tracking-widest uppercase flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            📅 Focos de Trabalho Planejados para Hoje
+          </h2>
+          <span className="text-xxs uppercase text-gray-500 font-bold">
+            [ Camada Superior de Consciência Semanal ]
+          </span>
+        </div>
+
+        {(() => {
+          // Compute today's active subjects
+          const getMonday = () => {
+            const today = new Date();
+            const day = today.getDay();
+            const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+            const m = new Date(today.setDate(diff));
+            m.setHours(0, 0, 0, 0);
+            return m;
+          };
+
+          const mondayOffsetStr = getMonday().toISOString().split('T')[0];
+          const todayIndex = new Date().getDay(); 
+          const activeWeeklyPlan = weeklyPlans.find(wp => wp.week_start_date === mondayOffsetStr);
+
+          const todaysScheduledWpts = activeWeeklyPlan
+            ? weeklyPlanTopics.filter(wpt => wpt.weekly_plan_id === activeWeeklyPlan.id && wpt.weekday === todayIndex)
+            : [];
+
+          const todaysTopics = todaysScheduledWpts
+            .map(wpt => topics.find(tp => tp.id === wpt.topic_id))
+            .filter(tp => tp !== undefined) as Topic[];
+
+          if (todaysTopics.length === 0) {
+            return (
+              <div className="border border-dashed border-zinc-800/65 bg-[#120e0a]/20 p-6 rounded-lg text-center text-xs text-gray-500 font-mono uppercase">
+                Sabático / Sem Assunto Focado para Hoje. <br />
+                <span className="text-[10px] opacity-70">Defina focos na aba [ Foco Semanal ] (F5) para gerenciar o Planejamento.</span>
+              </div>
+            );
+          }
+
+          const colorsMapping: Record<string, { hex: string }> = {
+            blue: { hex: '#60a5fa' },
+            purple: { hex: '#c084fc' },
+            green: { hex: '#34d399' },
+            red: { hex: '#f87171' },
+            yellow: { hex: '#fbbf24' },
+            cyan: { hex: '#22d3ee' },
+            orange: { hex: '#fb923c' }
+          };
+
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {todaysTopics.map(topic => {
+                const confColor = colorsMapping[topic.color_id || 'yellow'] || colorsMapping.yellow;
+                const associatedTasks = tasks.filter(t => t.topic_id === topic.id);
+                const openTasks = associatedTasks.filter(t => !t.is_completed);
+
+                return (
+                  <div 
+                    key={topic.id}
+                    className="border-2 rounded-xl p-4 bg-black/60 relative overflow-hidden flex flex-col gap-3 transition-colors"
+                    style={{ borderColor: confColor.hex + '25', minHeight: '140px' }}
+                  >
+                    {/* Left colored status wire */}
+                    <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: confColor.hex }} />
+
+                    {/* Topic details header */}
+                    <div className="flex justify-between items-start pl-1 border-b border-white/5 pb-2">
+                      <div>
+                        <h3 className="text-xs font-black tracking-wide uppercase text-white flex items-center gap-1.5" style={{ color: confColor.hex }}>
+                          {topic.name}
+                        </h3>
+                        {topic.description && (
+                          <p className="text-[10px] text-gray-550 font-mono mt-0.5 line-clamp-1">
+                            {topic.description}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-xxs px-1.5 py-0.5 bg-zinc-900 border border-zinc-800 rounded text-gray-400 font-mono uppercase font-black">
+                        {openTasks.length} ABERTAS
+                      </span>
+                    </div>
+
+                    {/* Listed related tasks */}
+                    <div className="flex-1 space-y-1.5 overflow-y-auto pl-1" style={{ maxHeight: '220px' }}>
+                      {associatedTasks.length === 0 ? (
+                        <div className="text-center py-4 border border-dashed border-zinc-900/60 rounded text-[10px] text-gray-500 font-mono uppercase">
+                          Nenhuma tarefa para este foco.
+                        </div>
+                      ) : (
+                        associatedTasks.map(task => (
+                          <div 
+                            key={task.id}
+                            className={`border p-2 rounded flex justify-between items-center bg-black/40 text-3xs font-mono transition-all ${
+                              task.is_completed ? 'opacity-40 border-emerald-950/20' : 'border-zinc-900 hover:border-zinc-800'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 overflow-hidden max-w-[70%]">
+                              <button
+                                onClick={() => handleToggleTaskChecked(task.id, task.is_completed)}
+                                className={`w-3.5 h-3.5 border flex items-center justify-center text-[10px] rounded shrink-0 transition-all font-black cursor-pointer ${
+                                  task.is_completed 
+                                    ? 'border-emerald-500 bg-emerald-500 text-black' 
+                                    : 'border-white/30 hover:border-[var(--color-amber)] text-transparent bg-transparent'
+                                }`}
+                              >
+                                ✓
+                              </button>
+                              <span className={`text-xxs font-bold uppercase truncate ${task.is_completed ? 'line-through text-gray-500' : 'text-gray-200'}`} title={task.title}>
+                                {task.title}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {!task.is_completed && (
+                                <button
+                                  onClick={() => handleStartFocusOnTask(task)}
+                                  className="p-1 text-[var(--color-amber)] hover:text-white transition"
+                                  title="Iniciar Pomodoro"
+                                >
+                                  <Play className="w-3 h-3 fill-current" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setEditingTask(task)}
+                                className="p-1 text-gray-400 hover:text-white transition"
+                                title="Editar"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteTask(task.id)}
+                                className="p-1 text-gray-400 hover:text-red-400 transition"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
+
       {/* 4. EXECUTION PIPELINE HIERARCHY (Synergy Group -> Category -> Period) */}
       <div className="space-y-5">
         <div className="flex justify-between items-center border-b border-[var(--color-amber)]/20 pb-2">
@@ -838,6 +1103,120 @@ export default function DashboardPage() {
               groups: periodGroups
             });
           });
+
+          if (groups.length === 0 || categories.length === 0 || tasks.length === 0) {
+            return (
+              <div className="space-y-4">
+                {groups.length === 0 && (
+                  <div className={`border-2 border-dashed p-6 rounded-xl text-center font-mono text-xs ${bgStyle} ${borderStyle} text-[var(--color-amber)]/80 uppercase space-y-3`}>
+                    <p className="font-bold">Nenhum grupo encontrado</p>
+                    {isCreatingGroup ? (
+                      <form onSubmit={handleCreateGroupInline} className="max-w-md mx-auto space-y-3 text-left border border-white/10 p-4 rounded bg-black/80">
+                        <div>
+                          <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Nome do Grupo</label>
+                          <input 
+                            type="text" 
+                            required 
+                            value={newGroupName} 
+                            onChange={e => setNewGroupName(e.target.value)} 
+                            className="w-full bg-zinc-950 border border-white/25 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded text-white"
+                            placeholder="Ex: Metas Gerais"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Descrição</label>
+                          <input 
+                            type="text" 
+                            value={newGroupDesc} 
+                            onChange={e => setNewGroupDesc(e.target.value)} 
+                            className="w-full bg-zinc-950 border border-white/25 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded text-white"
+                            placeholder="Descrição opcional..."
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="submit" className="px-3 py-1 bg-[var(--color-amber)] text-black text-[9px] font-extrabold uppercase rounded cursor-pointer">
+                            [ Salvar ]
+                          </button>
+                          <button type="button" onClick={() => setIsCreatingGroup(false)} className="px-3 py-1 border border-white/25 text-white text-[9px] font-extrabold uppercase rounded cursor-pointer">
+                            [ Cancelar ]
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button 
+                        onClick={() => { sounds.playButtonSwitch(); setIsCreatingGroup(true); }}
+                        className="px-4 py-1.5 border border-[var(--color-amber)] text-[var(--color-amber)] hover:bg-[var(--color-amber)]/10 text-[9px] font-black uppercase rounded cursor-pointer"
+                      >
+                        [ Criar ]
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {groups.length > 0 && categories.length === 0 && (
+                  <div className={`border-2 border-dashed p-6 rounded-xl text-center font-mono text-xs ${bgStyle} ${borderStyle} text-[var(--color-amber)]/80 uppercase space-y-3`}>
+                    <p className="font-bold">Nenhuma categoria encontrada</p>
+                    {isCreatingCategory ? (
+                      <form onSubmit={handleCreateCategoryInline} className="max-w-md mx-auto space-y-3 text-left border border-white/10 p-4 rounded bg-black/80">
+                        <div>
+                          <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Nome da Categoria</label>
+                          <input 
+                            type="text" 
+                            required 
+                            value={newCategoryName} 
+                            onChange={e => setNewCategoryName(e.target.value)} 
+                            className="w-full bg-zinc-950 border border-white/25 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded text-white"
+                            placeholder="Ex: Urgentes"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Grupo Alvo (Dossiê)</label>
+                          <select 
+                            required
+                            value={newCategoryGroupId} 
+                            onChange={e => setNewCategoryGroupId(e.target.value)} 
+                            className="w-full bg-zinc-950 border border-white/25 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase text-white"
+                          >
+                            <option value="" className="bg-black text-white">Selecione o Grupo...</option>
+                            {groups.map(g => (
+                              <option key={g.id} value={g.id} className="bg-black text-white">{g.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="submit" className="px-3 py-1 bg-[var(--color-amber)] text-black text-[9px] font-extrabold uppercase rounded cursor-pointer">
+                            [ Salvar ]
+                          </button>
+                          <button type="button" onClick={() => setIsCreatingCategory(false)} className="px-3 py-1 border border-white/25 text-white text-[9px] font-extrabold uppercase rounded cursor-pointer">
+                            [ Cancelar ]
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <button 
+                        onClick={() => { sounds.playButtonSwitch(); setIsCreatingCategory(true); }}
+                        className="px-4 py-1.5 border border-[var(--color-amber)] text-[var(--color-amber)] hover:bg-[var(--color-amber)]/10 text-[9px] font-black uppercase rounded cursor-pointer"
+                      >
+                        [ Criar ]
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {groups.length > 0 && categories.length > 0 && tasks.length === 0 && (
+                  <div className={`border-2 border-dashed p-6 rounded-xl text-center font-mono text-xs ${bgStyle} ${borderStyle} text-[var(--color-amber)]/80 uppercase space-y-3`}>
+                    <p className="font-bold">Nenhuma meta encontrada</p>
+                    <button 
+                      onClick={() => { sounds.playButtonSwitch(); setIsCreatingTask(true); }}
+                      className="px-4 py-1.5 border border-[var(--color-amber)] text-[var(--color-amber)] hover:bg-[var(--color-amber)]/10 text-[9px] font-black uppercase rounded cursor-pointer"
+                    >
+                      [ Criar ]
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          }
 
           if (groupedStructure.length === 0) {
             return (
@@ -1041,7 +1420,8 @@ export default function DashboardPage() {
                       group_id: editingTask.group_id,
                       category_id: editingTask.category_id || null,
                       urgency_level: editingTask.urgency_level,
-                      due_date: editingTask.due_date || null
+                      due_date: editingTask.due_date || null,
+                      topic_id: editingTask.topic_id || null
                     });
                     setEditingTask(null);
                     refreshData();
@@ -1137,14 +1517,30 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[9px] text-white/60 uppercase tracking-widest mb-1.5 font-bold">Prazo Limite (Opcional)</label>
-                  <input
-                    type="date"
-                    value={editingTask.due_date ? editingTask.due_date.substring(0, 10) : ''}
-                    onChange={(e) => setEditingTask({ ...editingTask, due_date: e.target.value ? new Date(e.target.value).toISOString() : null })}
-                    className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[9px] text-white/65 uppercase tracking-widest mb-1.5 font-bold">Prazo Limite (Opcional)</label>
+                    <input
+                      type="date"
+                      value={editingTask.due_date ? editingTask.due_date.substring(0, 10) : ''}
+                      onChange={(e) => setEditingTask({ ...editingTask, due_date: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] text-white/65 uppercase tracking-widest mb-1.5 font-bold">Assunto / Foco</label>
+                    <select
+                      value={editingTask.topic_id || ''}
+                      onChange={(e) => setEditingTask({ ...editingTask, topic_id: e.target.value || null })}
+                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase text-white"
+                    >
+                      <option value="">Livre / Sem Assunto</option>
+                      {topics.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="flex gap-2 pt-2">

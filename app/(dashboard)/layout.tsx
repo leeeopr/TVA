@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Terminal, Clock, CheckSquare, Sliders, Monitor, Cpu, Power, Briefcase } from 'lucide-react';
+import { Terminal, Clock, CheckSquare, Sliders, Monitor, Cpu, Power, Briefcase, Calendar } from 'lucide-react';
 import { db } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 import { useProductivityStore } from '@/stores/productivityStore';
@@ -100,6 +100,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         e.preventDefault();
         sounds.playButtonSwitch();
         router.push('/settings');
+      } else if (e.key === 'F5') {
+        e.preventDefault();
+        sounds.playButtonSwitch();
+        router.push('/weekly-planning');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -276,6 +280,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Projetos DEV
               </span>
               <span className="hidden lg:inline text-[9px] opacity-70">[F3]</span>
+            </Link>
+
+            <Link
+              href="/weekly-planning"
+              onClick={() => sounds.playButtonSwitch()}
+              className={`flex-1 lg:flex-none py-2 px-3 text-left rounded flex items-center justify-between gap-2 border text-xs tracking-wider transition-all uppercase ${
+                pathname === '/weekly-planning' 
+                  ? 'bg-[var(--color-amber)] text-black border-[var(--color-amber)] font-black' 
+                  : 'bg-transparent text-[var(--color-amber)] border-[var(--color-amber)]/30 hover:bg-[var(--color-amber)]/10'
+              }`}
+            >
+              <span className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                Foco Semanal
+              </span>
+              <span className="hidden lg:inline text-[9px] opacity-70">[F5]</span>
             </Link>
 
             <Link
