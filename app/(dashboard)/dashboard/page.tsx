@@ -98,6 +98,7 @@ export default function DashboardPage() {
   const [periodFormIcon, setPeriodFormIcon] = useState('☀️');
   const [periodFormColor, setPeriodFormColor] = useState('#60a5fa');
   const [formError, setFormError] = useState<string | null>(null);
+  const [taskFormError, setTaskFormError] = useState<string | null>(null);
 
   // Inline creation states for first run
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -185,13 +186,13 @@ export default function DashboardPage() {
     feedbackTap();
 
     try {
-      setFormError(null);
+      setTaskFormError(null);
       let gid = newTaskGroupId;
       if (!gid && groups.length > 0) {
         gid = groups[0].id;
       }
       if (!gid) {
-        setFormError("Não é possível criar tarefas sem um Grupo / Dossiê cadastrado. Crie um grupo primeiro.");
+        setTaskFormError("Não é possível criar tarefas sem um Grupo / Dossiê cadastrado. Crie um grupo primeiro.");
         sounds.playAlarmBreak();
         return;
       }
@@ -202,7 +203,8 @@ export default function DashboardPage() {
         newTaskTitle,
         newTaskDesc || null,
         newTaskDueDate || null,
-        newTaskTimePeriod || null
+        null, // 6th parameter (timePeriod string) is null since we align with the taskPeriodId UUID
+        newTaskTimePeriod || null // 7th parameter (taskPeriodId UUID)
       );
 
       setNewTaskTitle('');
@@ -210,11 +212,14 @@ export default function DashboardPage() {
       setNewTaskDueDate('');
       setNewTaskCategoryId('');
       setNewTaskTopicId('');
+      setNewTaskTimePeriod('');
+      setTaskFormError(null);
       setIsCreatingTask(false);
       refreshData();
       db.addLog('SYSTEM: ENFORCED NEW OPERATION IN PIPELINE SUITE.', 'success');
     } catch (err: any) {
-      setFormError(err.message || 'Erro ao salvar tarefa.');
+      console.error("Erro ao criar tarefa:", err);
+      setTaskFormError(err.message || 'Erro ao salvar tarefa.');
     }
   };
 
@@ -508,132 +513,183 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* COLLAPSIBLE TASK REGISTER FORM */}
+      {/* CENTRALIZED TASK REGISTER MODAL */}
       <AnimatePresence>
         {isCreatingTask && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4 overflow-y-auto backdrop-blur-sm"
           >
-            <div className={`border-2 p-5 rounded-xl space-y-4 bg-black/80 font-mono text-xs text-white ${borderStyle}`}>
-              <div className="border-b border-white/10 pb-1.5 flex justify-between items-center text-[10px] uppercase font-black tracking-wider text-[var(--color-amber)]">
-                <span>[ REGISTRO DE EXECUÇÃO RAPIDA ]</span>
-                <button onClick={() => { sounds.playKeyClick(); setIsCreatingTask(false); }} className="p-1 hover:text-rose-400">
-                  <X className="w-4 h-4" />
+            <div className={`max-w-2xl w-full border-2 rounded-xl p-6 bg-zinc-950 text-left space-y-6 ${borderStyle}`}>
+              
+              {/* MODAL HEADER */}
+              <div className="border-b border-white/10 pb-3 flex justify-between items-center text-xs text-white/90 font-mono tracking-widest font-black">
+                <span className="font-extrabold flex items-center gap-1.5 uppercase">
+                  <Plus className="w-4 h-4 text-[var(--color-amber)]" /> [ NOVA TAREFA - OPERAÇÃO RETRO ]
+                </span>
+                <button
+                  onClick={() => { sounds.playButtonSwitch(); setIsCreatingTask(false); setTaskFormError(null); }}
+                  className="p-1 text-white hover:text-rose-400 transition-colors uppercase cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateTask} className="space-y-3.5">
-                <div>
-                  <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">O que precisa ser feito?</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Refatorar reator principal, Escrever documentação"
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                    className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded"
-                  />
+              {/* MODAL ERROR SYSTEM */}
+              {taskFormError && (
+                <div className="p-3 border border-rose-500/30 bg-rose-950/20 text-rose-400 font-mono text-[10px] uppercase rounded flex items-start gap-2">
+                  <AlertOctagon className="w-4 h-4 shrink-0 mt-0.5 animate-pulse" />
+                  <div className="space-y-1">
+                    <span className="font-bold block">[! ADVERTÊNCIA DE INTERFACE]:</span>
+                    <span className="opacity-90">{taskFormError}</span>
+                  </div>
                 </div>
+              )}
 
-                <div>
-                  <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Descrição / Detalhes (Opcional)</label>
-                  <textarea
-                    placeholder="Notas heurísticas de suporte..."
-                    value={newTaskDesc}
-                    rows={2}
-                    onChange={(e) => setNewTaskDesc(e.target.value)}
-                    className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded resize-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              {/* MODAL FORM */}
+              <form onSubmit={handleCreateTask} className="space-y-4 font-mono text-xs text-white">
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Dossiê / Grupo</label>
-                    <select
-                      value={newTaskGroupId}
-                      onChange={(e) => {
-                        setNewTaskGroupId(e.target.value);
-                        setNewTaskCategoryId(''); // Reset selected category on group shift
-                      }}
-                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
-                    >
-                      {groups.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Categoria</label>
-                    <select
-                      value={newTaskCategoryId}
-                      onChange={(e) => setNewTaskCategoryId(e.target.value)}
-                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
-                    >
-                      <option value="">Sem Categoria</option>
-                      {categories
-                        .filter(c => c.group_id === newTaskGroupId)
-                        .map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Blco de Período</label>
-                    <select
-                      value={newTaskTimePeriod}
-                      onChange={(e) => setNewTaskTimePeriod(e.target.value)}
-                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
-                    >
-                      <option value="">Selecione o Bloco...</option>
-                      {periods.map(p => (
-                        <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Prazo Limite</label>
+                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Título do Elemento Operacional (O que precisa ser feito?)</label>
                     <input
-                      type="date"
-                      value={newTaskDueDate}
-                      onChange={(e) => setNewTaskDueDate(e.target.value)}
-                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer"
+                      type="text"
+                      required
+                      placeholder="Ex: Atualizar prontuários médicos, Cadastrar nova consulta"
+                      value={newTaskTitle}
+                      onChange={(e) => setNewTaskTitle(e.target.value)}
+                      className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1 font-bold">Assunto / Foco Relacionado</label>
-                    <select
-                      value={newTaskTopicId}
-                      onChange={(e) => setNewTaskTopicId(e.target.value)}
-                      className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer truncate uppercase text-white"
-                    >
-                      <option value="">Livre / Sem Assunto</option>
-                      {topics.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))}
-                    </select>
+                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Descrição / Observações Adicionais</label>
+                    <textarea
+                      placeholder="Identificadores, detalhes táteis ou resumos..."
+                      value={newTaskDesc}
+                      rows={3}
+                      onChange={(e) => setNewTaskDesc(e.target.value)}
+                      className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Dossiê / Grupo de Trabalho</label>
+                      <select
+                        value={newTaskGroupId}
+                        onChange={(e) => {
+                          setNewTaskGroupId(e.target.value);
+                          setNewTaskCategoryId(''); // Reset selected category on group shift
+                        }}
+                        className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
+                      >
+                        {groups.map(g => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Categoria</label>
+                      <select
+                        value={newTaskCategoryId}
+                        onChange={(e) => setNewTaskCategoryId(e.target.value)}
+                        className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
+                      >
+                        <option value="">Sem Categoria</option>
+                        {categories
+                          .filter(c => c.group_id === newTaskGroupId)
+                          .map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Bloco de Período Temporal</label>
+                      <select
+                        value={newTaskTimePeriod}
+                        onChange={(e) => setNewTaskTimePeriod(e.target.value)}
+                        className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
+                      >
+                        <option value="">Selecione o Bloco...</option>
+                        {periods.map(p => (
+                          <option key={p.id} value={p.id}>{p.icon} {p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Prazo Limite / Deadline</label>
+                      <input
+                        type="date"
+                        value={newTaskDueDate}
+                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                        className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">Assunto / Foco na Agenda Semanal</label>
+                      <select
+                        value={newTaskTopicId}
+                        onChange={(e) => setNewTaskTopicId(e.target.value)}
+                        className="w-full bg-black border border-white/20 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer truncate uppercase"
+                      >
+                        <option value="">Livre / Sem Assunto</option>
+                        {topics.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      {(() => {
+                        const urgency = db.calculateUrgency(newTaskDueDate);
+                        const badgeColors: Record<string, string> = {
+                          low: 'border-emerald-500/30 bg-emerald-950/20 text-emerald-400',
+                          moderate: 'border-yellow-500/30 bg-yellow-950/20 text-yellow-400',
+                          urgent: 'border-amber-500/30 bg-[#331d05]/30 text-[var(--color-amber)] animate-pulse',
+                          overdue: 'border-rose-500/30 bg-rose-950/20 text-rose-400 animate-pulse'
+                        };
+                        const labels: Record<string, string> = {
+                          low: '[ BAIXA ] - Sem prazo crítico',
+                          moderate: '[ MODERADA ] - Menos de 5 dias',
+                          urgent: '[ CRÍTICA / URGENTE ] - Próximos 3 dias',
+                          overdue: '[ ALERTA: ATRASADA ] - Prazo Ultrapassado'
+                        };
+                        return (
+                          <div className="h-full flex flex-col justify-end">
+                            <label className="block text-[9px] text-white/50 uppercase tracking-widest mb-1.5 font-bold">Nível de Urgência de Registro</label>
+                            <div className={`p-2.5 border rounded uppercase font-bold text-center text-[10px] ${badgeColors[urgency] || 'border-white/20 text-white/75'}`}>
+                              {labels[urgency] || urgency}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex gap-2.5 pt-2">
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-[var(--color-amber)] text-black font-extrabold uppercase text-[10px] tracking-wider rounded cursor-pointer hover:bg-[#ffd19a] transition-all"
-                  >
-                    Gravar na Matrix
-                  </button>
+                <div className="flex gap-3 justify-end pt-4 border-t border-white/10">
                   <button
                     type="button"
-                    onClick={() => { feedbackTap(); setIsCreatingTask(false); }}
-                    className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white font-extrabold uppercase text-[10px] tracking-wider rounded cursor-pointer transition-all"
+                    onClick={() => { sounds.playButtonSwitch(); setIsCreatingTask(false); setTaskFormError(null); }}
+                    className="px-5 py-2.5 bg-zinc-850 hover:bg-zinc-800 text-white font-extrabold uppercase text-[10px] tracking-widest rounded cursor-pointer transition-all border border-white/10"
                   >
-                    Desistir
+                    Desistir / Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 bg-[var(--color-amber)] text-black font-extrabold uppercase text-[10px] tracking-widest rounded cursor-pointer hover:bg-[#ffd19a] transition-all"
+                  >
+                    Gravar na Matrix
                   </button>
                 </div>
               </form>
