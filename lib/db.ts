@@ -249,6 +249,8 @@ export class db {
   private static dataRefreshListeners: (() => void)[] = [];
   private static isPulling: boolean = false;
   private static pullError: string | null = null;
+  private static hideCompleted: boolean = true;
+  private static ramTaskStats: any[] = [];
   private static colorNameToId: Record<string, string> = {};
   private static colorIdToName: Record<string, string> = {};
   private static colorIdToHex: Record<string, string> = {};
@@ -259,6 +261,20 @@ export class db {
 
   static getSyncError(): string | null {
     return this.pullError;
+  }
+
+  static getHideCompleted(): boolean {
+    return this.hideCompleted;
+  }
+
+  static async setHideCompleted(val: boolean): Promise<void> {
+    this.hideCompleted = val;
+    await this.pullFromSupabase();
+    this.triggerDataRefreshCallbacks();
+  }
+
+  static getTaskStats(): any[] {
+    return this.ramTaskStats;
   }
 
   static async loadCustomColors() {
@@ -611,7 +627,7 @@ export class db {
       }
 
       // 5. Fetch Tasks
-      const { data: tasksData, error: tasksErr } = await supabase
+      let taskQuery = supabase
         .from('tasks')
         .select(`
           *,
@@ -629,8 +645,13 @@ export class db {
           ),
           period:task_periods(*)
         `)
-        .eq('user_id', this.cachedUserId)
-        .order('position', { ascending: true });
+        .eq('user_id', this.cachedUserId);
+
+      if (this.hideCompleted) {
+        taskQuery = taskQuery.eq('completed', false);
+      }
+
+      const { data: tasksData, error: tasksErr } = await taskQuery.order('position', { ascending: true });
 
       if (!tasksErr && tasksData) {
         this.ramTasks = (tasksData as any[]).map(t => {
@@ -665,7 +686,39 @@ export class db {
             period_color: periodObj?.color || undefined
           };
         });
-        this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS RELATIONALLY ALIGNED IN RAM.`, 'success');
+        this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS RELATIONALLY ALIGNED IN RAM (FILTRADO: ${this.hideCompleted}).`, 'success');
+      }
+
+      // 5B. Fetch stats of all tasks (weightless status list) from Supabase purely for metrics/counters
+      try {
+        const { data: statsRawData, error: statsRawErr } = await supabase
+          .from('tasks')
+          .select('id, completed, deadline, urgency, created_at, task_period_id, group_id, category_id, time_period')
+          .eq('user_id', this.cachedUserId);
+
+        if (!statsRawErr && statsRawData) {
+          this.ramTaskStats = (statsRawData as any[]).map(t => {
+            const completedVal = t.completed ?? false;
+            const deadlineVal = t.deadline ?? null;
+            const urgencyVal = t.urgency ?? 'low';
+            return {
+              id: t.id,
+              is_completed: completedVal,
+              completed: completedVal,
+              due_date: deadlineVal,
+              deadline: deadlineVal,
+              urgency_level: urgencyVal,
+              urgency: urgencyVal,
+              created_at: t.created_at,
+              task_period_id: t.task_period_id,
+              group_id: t.group_id,
+              category_id: t.category_id,
+              time_period: t.time_period
+            };
+          });
+        }
+      } catch (err) {
+        console.warn("Failed to retrieve statistics payload from database:", err);
       }
 
       // 6. Fetch Pomodoro Sessions

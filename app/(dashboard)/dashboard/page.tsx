@@ -51,7 +51,9 @@ export default function DashboardPage() {
     setTimerMode,
     setTimerRunning,
     setTimeLeft,
-    setExpandedTask
+    setExpandedTask,
+    hideCompleted,
+    setHideCompleted
   } = useProductivityStore();
 
   const topics = storeCategories.map(cat => ({
@@ -340,8 +342,8 @@ export default function DashboardPage() {
     return true;
   });
 
-  const totalPending = tasks.filter(t => !t.is_completed).length;
-  const totalCompletedToday = tasks.filter(t => t.is_completed).length; 
+  const totalPending = db.getTaskStats().filter(t => !t.is_completed).length;
+  const totalCompletedToday = db.getTaskStats().filter(t => t.is_completed).length; 
   const totalTasks = totalPending + totalCompletedToday;
   const progressPercent = totalTasks > 0 ? Math.round((totalCompletedToday / totalTasks) * 100) : 0;
 
@@ -403,9 +405,9 @@ export default function DashboardPage() {
           .map(wpt => topics.find(tp => tp.id === wpt.category_id))
           .filter(tp => tp !== undefined).length;
 
-        const openTasksCount = tasks.filter(t => !t.is_completed).length;
-        const urgentTasksCount = tasks.filter(t => !t.is_completed && t.urgency_level === 'urgent').length;
-        const completedTodayCount = tasks.filter(t => t.is_completed).length; 
+        const openTasksCount = db.getTaskStats().filter(t => !t.is_completed).length;
+        const urgentTasksCount = db.getTaskStats().filter(t => !t.is_completed && t.urgency_level === 'urgent').length;
+        const completedTodayCount = db.getTaskStats().filter(t => t.is_completed).length; 
 
         const todaysDateFormatted = new Date().toLocaleDateString('pt-BR', { 
           weekday: 'long', 
@@ -473,7 +475,7 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {periods.map(p => {
-              const periodTasks = tasks.filter(t => t.task_period_id === p.id);
+              const periodTasks = db.getTaskStats().filter(t => t.task_period_id === p.id);
               const pending = periodTasks.filter(t => !t.is_completed).length;
               const completed = periodTasks.filter(t => t.is_completed).length;
               const total = pending + completed;
@@ -731,6 +733,26 @@ export default function DashboardPage() {
               <option value="overdue">Atrasada</option>
             </select>
           </div>
+        </div>
+
+        {/* Toggle Ocultar Concluídas */}
+        <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+          <label className="flex items-center gap-2 cursor-pointer select-none text-[10px] text-white/80 uppercase font-bold font-mono">
+            <input
+              type="checkbox"
+              id="toggle-hide-completed"
+              checked={hideCompleted}
+              onChange={(e) => {
+                sounds.playButtonSwitch();
+                setHideCompleted(e.target.checked);
+              }}
+              className="w-3.5 h-3.5 cursor-pointer accent-[var(--color-amber)]"
+            />
+            Ocultar Concluídas
+          </label>
+          <span className="text-[9px] text-zinc-500 font-mono select-none">
+            {hideCompleted ? '[✓] Ocultar concluídas (ATIVADO)' : '[ ] Mostrar concluídas'}
+          </span>
         </div>
       </div>
 
@@ -1298,88 +1320,131 @@ export default function DashboardPage() {
                                     </div>
 
                                     {/* Checklist Tasks in this Category */}
-                                    <div className="pl-4 sm:pl-6 space-y-2">
-                                      {cBlock.tasks.map(task => (
-                                        <div 
-                                          key={task.id}
-                                          className={`border p-3.5 rounded-lg bg-black/45 hover:bg-black/85 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group transition-all ${
-                                            task.is_completed ? 'border-emerald-500/10 opacity-40' : 'border-white/10'
-                                          }`}
-                                        >
-                                          <div className="flex items-start gap-3 overflow-hidden text-left font-mono">
-                                            <button
-                                              onClick={() => handleToggleTaskChecked(task.id, task.is_completed)}
-                                              className={`w-5 h-5 border flex items-center justify-center text-xs rounded shrink-0 transition-all font-black mt-0.5 cursor-pointer ${
-                                                task.is_completed 
-                                                  ? 'border-emerald-500 bg-emerald-500 text-black' 
-                                                  : 'border-white/30 hover:border-[var(--color-amber)] text-transparent bg-transparent'
-                                              }`}
-                                            >
-                                              ✓
-                                            </button>
-                                            
-                                            <div className="overflow-hidden space-y-1">
-                                              <h4 className={`text-xs font-bold uppercase tracking-wide leading-tight ${
-                                                task.is_completed ? 'line-through text-white/40 font-normal' : 'text-white'
-                                              }`}>
-                                                {task.title}
-                                              </h4>
+                                    <div className="pl-4 sm:pl-6 space-y-4">
+                                      {(() => {
+                                        const pendingTasks = cBlock.tasks.filter(t => !t.is_completed);
+                                        const completedTasks = cBlock.tasks.filter(t => t.is_completed);
+
+                                        const renderTaskCard = (task: any, isCompletedRow: boolean) => (
+                                          <div 
+                                            key={task.id}
+                                            className={`border p-3.5 rounded-lg bg-black/45 hover:bg-black/85 flex flex-col sm:flex-row sm:items-center justify-between gap-3 group transition-all ${
+                                              isCompletedRow ? 'border-emerald-500/10 opacity-40' : 'border-white/10'
+                                            }`}
+                                          >
+                                            <div className="flex items-start gap-3 overflow-hidden text-left font-mono">
+                                              <button
+                                                onClick={() => handleToggleTaskChecked(task.id, task.is_completed)}
+                                                className={`w-5 h-5 border flex items-center justify-center text-xs rounded shrink-0 transition-all font-black mt-0.5 cursor-pointer ${
+                                                  task.is_completed 
+                                                    ? 'border-emerald-500 bg-emerald-500 text-black' 
+                                                    : 'border-white/30 hover:border-[var(--color-amber)] text-transparent bg-transparent'
+                                                }`}
+                                              >
+                                                ✓
+                                              </button>
                                               
-                                              {task.description && (
-                                                <p className="text-[10px] text-white/50 leading-relaxed font-mono">
-                                                  {task.description}
-                                                </p>
-                                              )}
-
-                                              {/* Badges on Tasks inside Categories */}
-                                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                                <span className={`text-[8.5px] px-1.5 py-0.5 uppercase font-extrabold tracking-widest inline-block ${
-                                                  task.urgency_level === 'urgent' || task.urgency_level === 'overdue' 
-                                                    ? 'bg-rose-950/40 text-rose-400 border border-rose-800' 
-                                                    : 'bg-[var(--color-amber)]/20 text-[var(--color-amber)] border border-[var(--color-amber)]/30'
+                                              <div className="overflow-hidden space-y-1">
+                                                <h4 className={`text-xs font-bold uppercase tracking-wide leading-tight ${
+                                                  task.is_completed ? 'line-through text-white/40 font-normal' : 'text-white'
                                                 }`}>
-                                                  {task.urgency_level}
-                                                </span>
-
-                                                {task.due_date && (
-                                                  <span className="text-[8.5px] text-white/50 font-mono font-bold uppercase flex items-center gap-1 border border-white/5 bg-white/5 px-1 py-px rounded">
-                                                    <Calendar className="w-2.5 h-2.5" /> {new Date(task.due_date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}
-                                                  </span>
+                                                  {task.title}
+                                                </h4>
+                                                
+                                                {task.description && (
+                                                  <p className="text-[10px] text-white/50 leading-relaxed font-mono">
+                                                    {task.description}
+                                                  </p>
                                                 )}
+
+                                                {/* Badges on Tasks inside Categories */}
+                                                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                                  <span className={`text-[8.5px] px-1.5 py-0.5 uppercase font-extrabold tracking-widest inline-block ${
+                                                    task.urgency_level === 'urgent' || task.urgency_level === 'overdue' 
+                                                      ? 'bg-rose-950/40 text-rose-400 border border-rose-800' 
+                                                      : 'bg-[var(--color-amber)]/20 text-[var(--color-amber)] border border-[var(--color-amber)]/30'
+                                                  }`}>
+                                                    {task.urgency_level}
+                                                  </span>
+
+                                                  {task.due_date && (
+                                                    <span className="text-[8.5px] text-white/50 font-mono font-bold uppercase flex items-center gap-1 border border-white/5 bg-white/5 px-1 py-px rounded">
+                                                      <Calendar className="w-2.5 h-2.5" /> {new Date(task.due_date).toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}
+                                                    </span>
+                                                  )}
+                                                </div>
                                               </div>
                                             </div>
-                                          </div>
 
-                                          {/* Trigger Actions */}
-                                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto pt-2 sm:pt-0 border-t border-white/5 sm:border-0 w-full sm:w-auto justify-end">
-                                            {!task.is_completed && (
+                                            {/* Trigger Actions */}
+                                            <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto pt-2 sm:pt-0 border-t border-white/5 sm:border-0 w-full sm:w-auto justify-end">
+                                              {!task.is_completed && (
+                                                <button
+                                                  onClick={() => handleStartFocusOnTask(task)}
+                                                  title="Iniciar Foco"
+                                                  className="p-1.5 rounded bg-white/5 text-[var(--color-amber)] hover:bg-[var(--color-amber)] hover:text-black transition-all cursor-pointer"
+                                                >
+                                                  <Play className="w-3.5 h-3.5 fill-current" />
+                                                </button>
+                                              )}
+
                                               <button
-                                                onClick={() => handleStartFocusOnTask(task)}
-                                                title="Iniciar Foco"
-                                                className="p-1.5 rounded bg-white/5 text-[var(--color-amber)] hover:bg-[var(--color-amber)] hover:text-black transition-all cursor-pointer"
+                                                onClick={() => { feedbackTap(); setEditingTask(task); }}
+                                                title="Editar"
+                                                className="p-1.5 rounded bg-white/5 text-slate-300 hover:bg-white/15 transition-all cursor-pointer"
                                               >
-                                                <Play className="w-3.5 h-3.5 fill-current" />
+                                                <Edit2 className="w-3.5 h-3.5" />
                                               </button>
+
+                                              <button
+                                                onClick={() => handleDeleteTask(task.id)}
+                                                title="Excluir"
+                                                className="p-1.5 rounded bg-white/5 text-rose-400 hover:text-white hover:bg-rose-950/50 transition-all cursor-pointer"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+
+                                        return (
+                                          <div className="space-y-4">
+                                            {/* PENDING PORTION */}
+                                            {pendingTasks.length > 0 && (
+                                              <div className="space-y-2">
+                                                {!hideCompleted && completedTasks.length > 0 && (
+                                                  <div className="text-[9px] font-extrabold text-[var(--color-amber)] tracking-wider uppercase font-mono flex items-center gap-2 mb-2 select-none">
+                                                    <span>⊞</span>
+                                                    <span>Pendentes</span>
+                                                    <span className="h-px bg-white/5 flex-1" />
+                                                    <span className="opacity-40 text-[8px]">{pendingTasks.length} tarefas</span>
+                                                  </div>
+                                                )}
+                                                {pendingTasks.map(t => renderTaskCard(t, false))}
+                                              </div>
                                             )}
 
-                                            <button
-                                              onClick={() => { feedbackTap(); setEditingTask(task); }}
-                                              title="Editar"
-                                              className="p-1.5 rounded bg-white/5 text-slate-300 hover:bg-white/15 transition-all cursor-pointer"
-                                            >
-                                              <Edit2 className="w-3.5 h-3.5" />
-                                            </button>
+                                            {/* COMPLETED PORTION */}
+                                            {!hideCompleted && completedTasks.length > 0 && (
+                                              <div className="space-y-2">
+                                                <div className="text-[9px] font-extrabold text-emerald-400 tracking-wider uppercase font-mono flex items-center gap-2 mb-2 select-none">
+                                                  <span>☑</span>
+                                                  <span>Concluídas</span>
+                                                  <span className="h-px bg-white/5 flex-1" />
+                                                  <span className="opacity-40 text-[8px]">{completedTasks.length} tarefas</span>
+                                                </div>
+                                                {completedTasks.map(t => renderTaskCard(t, true))}
+                                              </div>
+                                            )}
 
-                                            <button
-                                              onClick={() => handleDeleteTask(task.id)}
-                                              title="Excluir"
-                                              className="p-1.5 rounded bg-white/5 text-rose-400 hover:text-white hover:bg-rose-950/50 transition-all cursor-pointer"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
+                                            {pendingTasks.length === 0 && (completedTasks.length === 0 || hideCompleted) && (
+                                              <div className="text-center py-4 border border-dashed border-white/5 rounded-lg text-[10px] text-zinc-500 font-mono uppercase tracking-wider">
+                                                [ Nenhuma meta listada neste quadrante ]
+                                              </div>
+                                            )}
                                           </div>
-                                        </div>
-                                      ))}
+                                        );
+                                      })()}
                                     </div>
                                   </div>
                                 );

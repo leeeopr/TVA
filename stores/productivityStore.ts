@@ -23,9 +23,11 @@ interface ProductivityState {
   selectedPresetName: string;
   linkedTask: Task | null;
   expandedTask: Task | null;
+  hideCompleted: boolean;
 
   // Actions
   refreshData: () => void;
+  setHideCompleted: (val: boolean) => Promise<void>;
   setTimerRunning: (running: boolean) => void;
   setTimeLeft: (time: number) => void;
   setTimerMode: (mode: 'FOCUS' | 'SHORT_BREAK' | 'LONG_BREAK') => void;
@@ -67,6 +69,7 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
   selectedPresetName: 'Estudo Padrão (25m)',
   linkedTask: null,
   expandedTask: null,
+  hideCompleted: true,
 
   refreshData: () => {
     set({
@@ -79,7 +82,13 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
       stats: db.getStats(),
       settings: db.getSettings(),
       terminalLogs: db.getLogs(),
+      hideCompleted: db.getHideCompleted(),
     });
+  },
+
+  setHideCompleted: async (val) => {
+    await db.setHideCompleted(val);
+    get().refreshData();
   },
 
   setTimerRunning: (running) => {

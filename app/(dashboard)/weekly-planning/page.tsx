@@ -268,7 +268,7 @@ export default function WeeklyPlanningPage() {
 
   // Count active tasks for category
   const getTasksForTopic = (categoryId: string) => {
-    return tasks.filter(t => t.category_id === categoryId);
+    return db.getTaskStats().filter(t => t.category_id === categoryId);
   };
 
   const getDayTopicsForPlan = (weekday: number) => {
