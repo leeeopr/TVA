@@ -155,6 +155,7 @@ export interface Task {
   status?: string | null;
   updated_by?: string | null;
   time_period?: string | null;
+  project_issue_id?: string | null;
   
   // Dynamic joins/resolved for UI mapping:
   group_name?: string;
@@ -1818,38 +1819,37 @@ export class db {
         position: maxPos,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        time_period: t.timePeriod
+        time_period: t.timePeriod,
+        project_issue_id: issueId
       };
 
       this.ramTasks.push(newTask);
 
       if (supabase && this.cachedUserId !== 'user-default') {
         try {
-          const payload = {
+          const created = await createSupabaseTask({
             id: taskId,
             group_id: t.groupId,
             category_id: t.categoryId,
             task_period_id: t.taskPeriodId,
             title: t.title,
             description: t.description || null,
+            due_date: t.dueDate,
             is_completed: false,
             position: maxPos,
             time_period: t.timePeriod,
             project_issue_id: issueId
-          };
+          });
           
-          const { error } = await supabase.from('tasks').insert(payload);
-          if (error) {
-            if (error.code === '42703') {
-              const prunedPayload = { ...payload };
-              delete (prunedPayload as any).project_issue_id;
-              await supabase.from('tasks').insert(prunedPayload);
-            } else {
-              throw error;
-            }
-          }
+          // Update model to match database inputs
+          this.ramTasks = this.ramTasks.map(task => task.id === taskId ? created : task);
+          this.addLog(`CLOUD_WRITE_SUCCESS: PROJECT TASK SYNCED TO SUPABASE.`, 'success');
         } catch (err: any) {
-          this.addLog(`TASK GENERATION CLOUD FAIL: ${err.message}`, 'error');
+          // Rollback optimistic update on cloud save failure
+          this.ramTasks = this.ramTasks.filter(task => task.id !== taskId);
+          const processedErr = err instanceof Error ? err : new Error(err?.message || JSON.stringify(err) || String(err));
+          this.addLog(`TASK GENERATION CLOUD FAIL: ${processedErr.message}`, 'error');
+          throw processedErr;
         }
       }
     }

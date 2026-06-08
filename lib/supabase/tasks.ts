@@ -51,6 +51,7 @@ export interface Task {
   status?: string | null;
   updated_by?: string | null;
   time_period?: string | null;
+  project_issue_id?: string | null;
   
   // Database native mappings
   deadline?: string | null;
@@ -116,7 +117,8 @@ export function mapTaskFromDb(t: any): Task {
     deadline: deadlineVal,
     urgency: urgencyVal === 'overdue' ? 'urgent' : urgencyVal,
     completed: completedVal,
-    time_period: t.time_period ?? null
+    time_period: t.time_period ?? null,
+    project_issue_id: t.project_issue_id ?? null
   };
 }
 
@@ -175,7 +177,8 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
     deadline: rawDeadline,
     urgency: mappedUrgency,
     time_period: task.time_period || null,
-    task_period_id: task.task_period_id || null
+    task_period_id: task.task_period_id || null,
+    project_issue_id: task.project_issue_id || null
   };
 
   // 3. LOGS OBRIGATÓRIOS (TASK PAYLOAD)
@@ -199,6 +202,7 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
     delete prunedPayload.urgency;
     delete prunedPayload.due_date;
     delete prunedPayload.urgency_level;
+    delete prunedPayload.project_issue_id;
 
     console.log("TASK PAYLOAD ATTEMPT 2 (PRUNED)", prunedPayload);
 
