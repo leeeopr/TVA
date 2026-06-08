@@ -29,16 +29,11 @@ const generateUUID = (): string => {
 };
 
 const getCurrentUserId = async (): Promise<string> => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return 'user-default';
-    }
-    return user.id;
-  } catch (err) {
-    console.warn("Failed retrieving standard Supabase User session:", err);
-    return 'user-default';
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    throw new Error("Usuário não autenticado no Supabase.");
   }
+  return user.id;
 };
 
 // ==========================================
@@ -57,35 +52,20 @@ export async function getWeeklyPlans(): Promise<WeeklyPlan[]> {
       .order('week_start_date', { ascending: false });
 
     if (error) {
-      if (error.code === '42P01') {
-        console.warn("A tabela 'weekly_plans' não existe. Por favor execute as migrações SQL no painel.");
-        return [];
-      }
       throw error;
     }
     return data || [];
   } catch (err) {
-    console.warn("Error getting weekly plans from Supabase:", err);
-    return [];
+    console.error("Erro ao carregar planejamentos semanais do Supabase:", err);
+    throw err;
   }
 }
 
 export async function getOrCreateWeeklyPlan(weekStartDate: string): Promise<WeeklyPlan> {
   try {
     const uid = await getCurrentUserId();
-    const isGuest = uid === 'user-default';
 
-    if (isGuest) {
-      return {
-        id: `mock-plan-${weekStartDate}`,
-        user_id: uid,
-        week_start_date: weekStartDate,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-    }
-
-    // Try fetching first
+    // Tenta carregar primeiro
     const { data, error } = await supabase
       .from('weekly_plans')
       .select('*')
@@ -94,21 +74,11 @@ export async function getOrCreateWeeklyPlan(weekStartDate: string): Promise<Week
       .maybeSingle();
 
     if (error) {
-      if (error.code === '42P01') {
-        console.warn("A tabela 'weekly_plans' não existe. Usando plano em memória temporário.");
-        return {
-          id: `mock-plan-${weekStartDate}`,
-          user_id: uid,
-          week_start_date: weekStartDate,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-      }
       throw error;
     }
     if (data) return data;
 
-    // Otherwise create it
+    // Caso não exista, cria o registro
     const id = generateUUID();
     const payload = {
       id,
@@ -125,22 +95,12 @@ export async function getOrCreateWeeklyPlan(weekStartDate: string): Promise<Week
       .single();
 
     if (insertError) {
-      if (insertError.code === '42P01') {
-        console.warn("A tabela 'weekly_plans' não existe ao inserir. Utilizando em memória.");
-        return payload;
-      }
       throw insertError;
     }
     return inserted;
   } catch (err) {
-    console.warn("Failed retrieving/creating plan on Supabase, falling back to memory:", err);
-    return {
-      id: `mock-plan-${weekStartDate}`,
-      user_id: 'user-default',
-      week_start_date: weekStartDate,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
+    console.error("Erro ao obter ou criar planejamento semanal no Supabase:", err);
+    throw err;
   }
 }
 
@@ -160,38 +120,29 @@ export async function getWeeklyPlanTopics(weeklyPlanId: string): Promise<WeeklyP
       .eq('user_id', user.id);
 
     if (error) {
-      if (error.code === '42P01') {
-        console.warn("A tabela 'weekly_plan_topics' não existe. Por favor execute as migrações SQL no painel.");
-        return [];
-      }
       throw error;
     }
     return data || [];
   } catch (err) {
-    console.warn("Error getting weekly plan topics from Supabase:", err);
-    return [];
+    console.error("Erro ao carregar tópicos de planejamento semanal do Supabase:", err);
+    throw err;
   }
 }
 
 export async function saveWeeklyPlanTopic(weeklyPlanId: string, categoryId: string, weekday: number): Promise<WeeklyPlanTopic> {
-  const payload = {
-    id: generateUUID(),
-    weekly_plan_id: weeklyPlanId,
-    category_id: categoryId,
-    weekday,
-    user_id: 'user-default',
-    created_at: new Date().toISOString()
-  };
-
   try {
     const uid = await getCurrentUserId();
-    payload.user_id = uid;
 
-    if (uid === 'user-default') {
-      return payload;
-    }
+    const payload = {
+      id: generateUUID(),
+      weekly_plan_id: weeklyPlanId,
+      category_id: categoryId,
+      weekday,
+      user_id: uid,
+      created_at: new Date().toISOString()
+    };
 
-    // Use upsert to handle conflict on unique key
+    // Upsert para gerenciar conflitos na chave única
     const { data, error } = await supabase
       .from('weekly_plan_topics')
       .upsert(payload, { onConflict: 'weekly_plan_id,category_id,weekday' })
@@ -199,23 +150,19 @@ export async function saveWeeklyPlanTopic(weeklyPlanId: string, categoryId: stri
       .single();
 
     if (error) {
-      if (error.code === '42P01') {
-        console.warn("A tabela 'weekly_plan_topics' não existe. Retornando payload em memória.");
-        return payload;
-      }
       throw error;
     }
     return data;
   } catch (err) {
-    console.warn("Error saving weekly plan topic to Supabase, fallback to memory:", err);
-    return payload;
+    console.error("Erro ao salvar tópico do planejamento semanal no Supabase:", err);
+    throw err;
   }
 }
 
 export async function deleteWeeklyPlanTopic(weeklyPlanId: string, categoryId: string, weekday: number): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) throw new Error("Usuário não autenticado.");
 
     const { error } = await supabase
       .from('weekly_plan_topics')
@@ -226,20 +173,18 @@ export async function deleteWeeklyPlanTopic(weeklyPlanId: string, categoryId: st
       .eq('user_id', user.id);
 
     if (error) {
-      if (error.code === '42P01') {
-        return;
-      }
       throw error;
     }
   } catch (err) {
-    console.warn("Error deleting weekly plan topic from Supabase:", err);
+    console.error("Erro ao remover tópico do planejamento semanal no Supabase:", err);
+    throw err;
   }
 }
 
 export async function clearWeeklyPlanDay(weeklyPlanId: string, weekday: number): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) throw new Error("Usuário não autenticado.");
 
     const { error } = await supabase
       .from('weekly_plan_topics')
@@ -249,12 +194,10 @@ export async function clearWeeklyPlanDay(weeklyPlanId: string, weekday: number):
       .eq('user_id', user.id);
 
     if (error) {
-      if (error.code === '42P01') {
-        return;
-      }
       throw error;
     }
   } catch (err) {
-    console.warn("Error clearing weekly plan day on Supabase:", err);
+    console.error("Erro ao limpar dia do planejamento semanal no Supabase:", err);
+    throw err;
   }
 }

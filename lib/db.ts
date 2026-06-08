@@ -1871,24 +1871,7 @@ export class db {
   }
 
   static async getOrCreateWeeklyPlan(weekStartDate: string): Promise<WeeklyPlan> {
-    const isGuest = !supabase || this.cachedUserId === 'user-default';
-    let plan: WeeklyPlan;
-    if (isGuest) {
-      const existing = this.ramWeeklyPlans.find(p => p.week_start_date === weekStartDate);
-      if (existing) {
-        plan = existing;
-      } else {
-        plan = {
-          id: `mock-plan-${weekStartDate}`,
-          user_id: this.cachedUserId,
-          week_start_date: weekStartDate,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-      }
-    } else {
-      plan = await getOrCreateSupabaseWeeklyPlan(weekStartDate);
-    }
+    const plan = await getOrCreateSupabaseWeeklyPlan(weekStartDate);
     if (!this.ramWeeklyPlans.some(p => p.id === plan.id)) {
       this.ramWeeklyPlans.unshift(plan);
     }
@@ -1897,20 +1880,7 @@ export class db {
   }
 
   static async saveWeeklyPlanTopic(weeklyPlanId: string, categoryId: string, weekday: number): Promise<WeeklyPlanTopic> {
-    const isGuest = !supabase || this.cachedUserId === 'user-default';
-    let created: WeeklyPlanTopic;
-    if (isGuest) {
-      created = {
-        id: `mock-wpt-${Math.random().toString(36).substr(2, 9)}`,
-        weekly_plan_id: weeklyPlanId,
-        category_id: categoryId,
-        weekday,
-        user_id: this.cachedUserId,
-        created_at: new Date().toISOString()
-      };
-    } else {
-      created = await saveSupabaseWeeklyPlanTopic(weeklyPlanId, categoryId, weekday);
-    }
+    const created = await saveSupabaseWeeklyPlanTopic(weeklyPlanId, categoryId, weekday);
     this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(
       wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.category_id === categoryId && wpt.weekday === weekday)
     );
@@ -1920,10 +1890,7 @@ export class db {
   }
 
   static async deleteWeeklyPlanTopic(weeklyPlanId: string, categoryId: string, weekday: number): Promise<void> {
-    const isGuest = !supabase || this.cachedUserId === 'user-default';
-    if (!isGuest) {
-      await deleteSupabaseWeeklyPlanTopic(weeklyPlanId, categoryId, weekday);
-    }
+    await deleteSupabaseWeeklyPlanTopic(weeklyPlanId, categoryId, weekday);
     this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(
       wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.category_id === categoryId && wpt.weekday === weekday)
     );
@@ -1931,10 +1898,7 @@ export class db {
   }
 
   static async clearWeeklyPlanDay(weeklyPlanId: string, weekday: number): Promise<void> {
-    const isGuest = !supabase || this.cachedUserId === 'user-default';
-    if (!isGuest) {
-      await clearSupabaseWeeklyPlanDay(weeklyPlanId, weekday);
-    }
+    await clearSupabaseWeeklyPlanDay(weeklyPlanId, weekday);
     this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(
       wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.weekday === weekday)
     );
