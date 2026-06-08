@@ -51,7 +51,6 @@ export interface Task {
   status?: string | null;
   updated_by?: string | null;
   time_period?: string | null;
-  topic_id?: string | null;
   
   // Database native mappings
   deadline?: string | null;
@@ -67,9 +66,6 @@ export interface Task {
   period_name?: string;
   period_icon?: string;
   period_color?: string;
-  topic_name?: string;
-  topic_color?: string;
-  topic_color_hex?: string;
 }
 
 const generateUUID = (): string => {
@@ -120,8 +116,7 @@ export function mapTaskFromDb(t: any): Task {
     deadline: deadlineVal,
     urgency: urgencyVal === 'overdue' ? 'urgent' : urgencyVal,
     completed: completedVal,
-    time_period: t.time_period ?? null,
-    topic_id: t.topic_id ?? null
+    time_period: t.time_period ?? null
   };
 }
 
@@ -180,8 +175,7 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
     deadline: rawDeadline,
     urgency: mappedUrgency,
     time_period: task.time_period || null,
-    task_period_id: task.task_period_id || null,
-    topic_id: task.topic_id || null
+    task_period_id: task.task_period_id || null
   };
 
   // 3. LOGS OBRIGATÓRIOS (TASK PAYLOAD)
@@ -238,7 +232,6 @@ export async function updateTask(id: string, updates: Partial<Task>, userId?: st
   if (updates.group_id !== undefined) payload.group_id = updates.group_id;
   if (updates.category_id !== undefined) payload.category_id = updates.category_id;
   if (updates.task_period_id !== undefined) payload.task_period_id = updates.task_period_id;
-  if (updates.topic_id !== undefined) payload.topic_id = updates.topic_id;
   if (updates.position !== undefined) payload.position = updates.position;
   if (updates.time_period !== undefined) payload.time_period = updates.time_period;
 

@@ -29,33 +29,19 @@ import {
   deleteProjectIssue as deleteSupabaseProjectIssue
 } from './supabase/projects';
 import {
-  getTopics as getSupabaseTopics,
-  createTopic as createSupabaseTopic,
-  updateTopic as updateSupabaseTopic,
-  deleteTopic as deleteSupabaseTopic,
   getWeeklyPlans as getSupabaseWeeklyPlans,
   getOrCreateWeeklyPlan as getOrCreateSupabaseWeeklyPlan,
   getWeeklyPlanTopics as getSupabaseWeeklyPlanTopics,
   saveWeeklyPlanTopic as saveSupabaseWeeklyPlanTopic,
   deleteWeeklyPlanTopic as deleteSupabaseWeeklyPlanTopic,
   clearWeeklyPlanDay as clearSupabaseWeeklyPlanDay
-} from './supabase/topics';
+} from './supabase/weeklyPlans';
 
 // ==========================================
 // RETRO-FUTURISTIC TERMINAL DATABANK ADAPTER
 // ==========================================
 // No localStorage or sessionStorage allowed for Task, Group, Category, or Session data!
 // Persisted 100% in Supabase Cloud if authenticated, or falls back to in-memory secure RAM cycles.
-
-export interface Topic {
-  id: string;
-  user_id: string;
-  name: string;
-  description: string | null;
-  color_id: string | null;
-  created_at: string;
-  updated_at: string;
-}
 
 export interface WeeklyPlan {
   id: string;
@@ -68,7 +54,7 @@ export interface WeeklyPlan {
 export interface WeeklyPlanTopic {
   id: string;
   weekly_plan_id: string;
-  topic_id: string;
+  category_id: string;
   weekday: number;
   user_id: string;
   created_at: string;
@@ -134,7 +120,9 @@ export interface TaskCategory {
   group_id: string;
   name: string;
   color: string | null;
+  description?: string | null;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface TaskPeriod {
@@ -167,7 +155,6 @@ export interface Task {
   status?: string | null;
   updated_by?: string | null;
   time_period?: string | null;
-  topic_id?: string | null;
   
   // Dynamic joins/resolved for UI mapping:
   group_name?: string;
@@ -178,9 +165,6 @@ export interface Task {
   period_name?: string;
   period_icon?: string;
   period_color?: string;
-  topic_name?: string;
-  topic_color?: string;
-  topic_color_hex?: string;
 }
 
 export interface PomodoroPreset {
@@ -326,7 +310,6 @@ export class db {
   private static ramProjects: Project[] = [];
   private static ramPhases: ProjectPhase[] = [];
   private static ramIssues: ProjectIssue[] = [];
-  private static ramTopics: Topic[] = [];
   private static ramWeeklyPlans: WeeklyPlan[] = [];
   private static ramWeeklyPlanTopics: WeeklyPlanTopic[] = [];
 
@@ -607,11 +590,8 @@ export class db {
         }
       }
 
-      // 4C. Fetch Topics and Weekly Plans (Step 1B)
+      // 4C. Fetch Weekly Plans (Step 1B)
       try {
-        const topics = await getSupabaseTopics();
-        this.ramTopics = topics;
-
         const plans = await getSupabaseWeeklyPlans();
         this.ramWeeklyPlans = plans;
 
@@ -626,8 +606,8 @@ export class db {
         } else {
           this.ramWeeklyPlanTopics = [];
         }
-      } catch (topicErr) {
-        console.warn("Skipped database loading of weekly planning; tables might not exist yet.", topicErr);
+      } catch (planErr) {
+        console.warn("Skipped database loading of weekly planning; tables might not exist yet.", planErr);
       }
 
       // 5. Fetch Tasks
@@ -671,11 +651,6 @@ export class db {
           const catColorObj = categoryObj?.color;
           const periodObj = t.period || this.ramPeriods.find(p => p.id === pId);
 
-          // Resolve topic models
-          const topicObj = this.ramTopics.find(tp => tp.id === mapped.topic_id);
-          const topicColorName = topicObj?.color_id ? this.colorIdToName[topicObj.color_id] : undefined;
-          const topicColorHex = topicObj?.color_id ? this.colorIdToHex[topicObj.color_id] : undefined;
-
           return {
             ...mapped,
             task_period_id: pId,
@@ -687,10 +662,7 @@ export class db {
             category_color_hex: catColorObj?.hex_code || undefined,
             period_name: periodObj?.name || undefined,
             period_icon: periodObj?.icon || undefined,
-            period_color: periodObj?.color || undefined,
-            topic_name: topicObj?.name || undefined,
-            topic_color: topicColorName || undefined,
-            topic_color_hex: topicColorHex || undefined
+            period_color: periodObj?.color || undefined
           };
         });
         this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS RELATIONALLY ALIGNED IN RAM.`, 'success');
@@ -990,7 +962,7 @@ export class db {
     return this.ramCategories;
   }
 
-  static async saveCategory(groupId: string, name: string, color: string | null = null): Promise<TaskCategory> {
+  static async saveCategory(groupId: string, name: string, color: string | null = null, description: string | null = null): Promise<TaskCategory> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       const errMsg = "Operação bloqueada: Usuário não autenticado no Supabase.";
@@ -1008,7 +980,7 @@ export class db {
       user_id: user.id,
       group_id: groupId,
       name,
-      description: null,
+      description,
       color_id: colorId,
       position: this.ramCategories.filter(c => c.group_id === groupId).length,
       created_at: new Date().toISOString(),
@@ -1024,6 +996,7 @@ export class db {
       group_id: groupId,
       name,
       color,
+      description,
       created_at: payload.created_at
     };
 
@@ -1089,6 +1062,7 @@ export class db {
 
   static async deleteCategory(id: string): Promise<TaskCategory[]> {
     this.ramCategories = this.ramCategories.filter(c => c.id !== id);
+    this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(wpt => wpt.category_id !== id);
     // Cascade tasks mapping
     this.ramTasks = this.ramTasks.map(t => {
       if (t.category_id === id) {
@@ -1151,8 +1125,7 @@ export class db {
     description: string | null, 
     dueDate: string | null,
     timePeriod: string | null = null,
-    taskPeriodId: string | null = null,
-    topicId: string | null = null
+    taskPeriodId: string | null = null
   ): Promise<Task> {
     const taskId = generateUUID();
     const resolvedUrgency = this.calculateUrgency(dueDate);
@@ -1161,20 +1134,12 @@ export class db {
     const groupTasks = this.ramTasks.filter(t => t.group_id === groupId);
     const maxPos = groupTasks.length > 0 ? Math.max(...groupTasks.map(t => t.position)) + 1 : 0;
 
-    const topicObj = this.ramTopics.find(tp => tp.id === topicId);
-    const topicColorName = topicObj?.color_id ? this.colorIdToName[topicObj.color_id] : undefined;
-    const topicColorHex = topicObj?.color_id ? this.colorIdToHex[topicObj.color_id] : undefined;
-
     const newTask: Task = {
       id: taskId,
       user_id: this.cachedUserId,
       group_id: groupId,
       category_id: categoryId,
       task_period_id: taskPeriodId,
-      topic_id: topicId,
-      topic_name: topicObj?.name || undefined,
-      topic_color: topicColorName || undefined,
-      topic_color_hex: topicColorHex || undefined,
       title,
       description,
       due_date: dueDate,
@@ -1197,7 +1162,6 @@ export class db {
           group_id: groupId,
           category_id: categoryId,
           task_period_id: taskPeriodId,
-          topic_id: topicId,
           title,
           description,
           due_date: dueDate,
@@ -1842,70 +1806,6 @@ export class db {
   }
 
   // ==========================================
-  // TOPICS & SUBJECT DATA WRAPPERS
-  // ==========================================
-
-  static getTopics(): Topic[] {
-    return this.ramTopics;
-  }
-
-  static async saveTopic(name: string, description: string | null, colorId: string | null, id?: string): Promise<Topic> {
-    const isGuest = !supabase || this.cachedUserId === 'user-default';
-    if (id) {
-      let updated: Topic;
-      if (isGuest) {
-        const found = this.ramTopics.find(t => t.id === id);
-        updated = {
-          id,
-          user_id: this.cachedUserId,
-          name,
-          description,
-          color_id: colorId,
-          created_at: found?.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-      } else {
-        updated = await updateSupabaseTopic(id, { name, description, color_id: colorId });
-      }
-      this.ramTopics = this.ramTopics.map(t => t.id === id ? updated : t);
-      const colorName = colorId ? this.colorIdToName[colorId] : undefined;
-      const colorHex = colorId ? this.colorIdToHex[colorId] : undefined;
-      this.ramTasks = this.ramTasks.map(t => t.topic_id === id ? { ...t, topic_name: name, topic_color: colorName, topic_color_hex: colorHex } : t);
-      this.triggerDataRefreshCallbacks();
-      return updated;
-    } else {
-      let created: Topic;
-      if (isGuest) {
-        created = {
-          id: 'topics-' + Math.random().toString(36).substr(2, 9),
-          user_id: this.cachedUserId,
-          name,
-          description,
-          color_id: colorId,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-      } else {
-        created = await createSupabaseTopic({ name, description, color_id: colorId });
-      }
-      this.ramTopics.push(created);
-      this.triggerDataRefreshCallbacks();
-      return created;
-    }
-  }
-
-  static async deleteTopic(id: string): Promise<void> {
-    const isGuest = !supabase || this.cachedUserId === 'user-default';
-    if (!isGuest) {
-      await deleteSupabaseTopic(id);
-    }
-    this.ramTopics = this.ramTopics.filter(t => t.id !== id);
-    this.ramTasks = this.ramTasks.map(t => t.topic_id === id ? { ...t, topic_id: null, topic_name: undefined, topic_color: undefined, topic_color_hex: undefined } : t);
-    this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(wpt => wpt.topic_id !== id);
-    this.triggerDataRefreshCallbacks();
-  }
-
-  // ==========================================
   // WEEKLY PLANNING SYSTEM WRAPPERS
   // ==========================================
 
@@ -1943,36 +1843,36 @@ export class db {
     return plan;
   }
 
-  static async saveWeeklyPlanTopic(weeklyPlanId: string, topicId: string, weekday: number): Promise<WeeklyPlanTopic> {
+  static async saveWeeklyPlanTopic(weeklyPlanId: string, categoryId: string, weekday: number): Promise<WeeklyPlanTopic> {
     const isGuest = !supabase || this.cachedUserId === 'user-default';
     let created: WeeklyPlanTopic;
     if (isGuest) {
       created = {
         id: `mock-wpt-${Math.random().toString(36).substr(2, 9)}`,
         weekly_plan_id: weeklyPlanId,
-        topic_id: topicId,
+        category_id: categoryId,
         weekday,
         user_id: this.cachedUserId,
         created_at: new Date().toISOString()
       };
     } else {
-      created = await saveSupabaseWeeklyPlanTopic(weeklyPlanId, topicId, weekday);
+      created = await saveSupabaseWeeklyPlanTopic(weeklyPlanId, categoryId, weekday);
     }
     this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(
-      wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.topic_id === topicId && wpt.weekday === weekday)
+      wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.category_id === categoryId && wpt.weekday === weekday)
     );
     this.ramWeeklyPlanTopics.push(created);
     this.triggerDataRefreshCallbacks();
     return created;
   }
 
-  static async deleteWeeklyPlanTopic(weeklyPlanId: string, topicId: string, weekday: number): Promise<void> {
+  static async deleteWeeklyPlanTopic(weeklyPlanId: string, categoryId: string, weekday: number): Promise<void> {
     const isGuest = !supabase || this.cachedUserId === 'user-default';
     if (!isGuest) {
-      await deleteSupabaseWeeklyPlanTopic(weeklyPlanId, topicId, weekday);
+      await deleteSupabaseWeeklyPlanTopic(weeklyPlanId, categoryId, weekday);
     }
     this.ramWeeklyPlanTopics = this.ramWeeklyPlanTopics.filter(
-      wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.topic_id === topicId && wpt.weekday === weekday)
+      wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.category_id === categoryId && wpt.weekday === weekday)
     );
     this.triggerDataRefreshCallbacks();
   }

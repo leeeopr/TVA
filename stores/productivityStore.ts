@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod, Topic, WeeklyPlan, WeeklyPlanTopic } from '@/lib/db';
+import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod, TaskCategory, WeeklyPlan, WeeklyPlanTopic } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 
 interface ProductivityState {
   tasks: Task[];
   presets: PomodoroPreset[];
   periods: TaskPeriod[];
-  topics: Topic[];
+  categories: TaskCategory[];
   weeklyPlans: WeeklyPlan[];
   weeklyPlanTopics: WeeklyPlanTopic[];
   stats: DailyStatistics | null;
@@ -42,7 +42,7 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
   tasks: [],
   presets: [],
   periods: [],
-  topics: [],
+  categories: [],
   weeklyPlans: [],
   weeklyPlanTopics: [],
   stats: null,
@@ -73,7 +73,7 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
       tasks: db.getTasks(),
       presets: db.getPresets(),
       periods: db.getTaskPeriods(),
-      topics: db.getTopics(),
+      categories: db.getCategories(),
       weeklyPlans: db.getWeeklyPlans(),
       weeklyPlanTopics: db.getWeeklyPlanTopics(),
       stats: db.getStats(),

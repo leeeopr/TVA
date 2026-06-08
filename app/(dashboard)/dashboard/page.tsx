@@ -25,7 +25,14 @@ import {
 import { useProductivityStore } from '@/stores/productivityStore';
 import { useAuthStore } from '@/stores/authStore';
 import { sounds } from '@/lib/sounds';
-import { db, Task, TaskPeriod, TaskGroup, TaskCategory, Topic } from '@/lib/db';
+import { db, Task, TaskPeriod, TaskGroup, TaskCategory } from '@/lib/db';
+
+interface Topic {
+  id: string;
+  name: string;
+  description?: string | null;
+  color_id?: string | null;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -36,7 +43,7 @@ export default function DashboardPage() {
     periods,
     stats,
     settings, 
-    topics,
+    categories: storeCategories,
     weeklyPlans,
     weeklyPlanTopics,
     refreshData,
@@ -46,6 +53,12 @@ export default function DashboardPage() {
     setTimeLeft,
     setExpandedTask
   } = useProductivityStore();
+
+  const topics = storeCategories.map(cat => ({
+    ...cat,
+    color_id: cat.color || 'yellow',
+    description: cat.description || ''
+  })) as Topic[];
 
   const { user } = useAuthStore();
 
@@ -183,13 +196,11 @@ export default function DashboardPage() {
 
       await db.saveTask(
         gid,
-        newTaskCategoryId || null,
+        newTaskCategoryId || newTaskTopicId || null,
         newTaskTitle,
         newTaskDesc || null,
         newTaskDueDate || null,
-        null,
-        newTaskTimePeriod || null,
-        newTaskTopicId || null
+        newTaskTimePeriod || null
       );
 
       setNewTaskTitle('');
@@ -389,7 +400,7 @@ export default function DashboardPage() {
           : [];
 
         const todaysTopicsCount = scheduledWptsToday
-          .map(wpt => topics.find(tp => tp.id === wpt.topic_id))
+          .map(wpt => topics.find(tp => tp.id === wpt.category_id))
           .filter(tp => tp !== undefined).length;
 
         const openTasksCount = tasks.filter(t => !t.is_completed).length;
@@ -836,7 +847,7 @@ export default function DashboardPage() {
             : [];
 
           const todaysTopics = todaysScheduledWpts
-            .map(wpt => topics.find(tp => tp.id === wpt.topic_id))
+            .map(wpt => topics.find(tp => tp.id === wpt.category_id))
             .filter(tp => tp !== undefined) as Topic[];
 
           if (todaysTopics.length === 0) {
@@ -862,7 +873,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {todaysTopics.map(topic => {
                 const confColor = colorsMapping[topic.color_id || 'yellow'] || colorsMapping.yellow;
-                const associatedTasks = tasks.filter(t => t.topic_id === topic.id);
+                const associatedTasks = tasks.filter(t => t.category_id === topic.id);
                 const openTasks = associatedTasks.filter(t => !t.is_completed);
 
                 return (
@@ -1420,8 +1431,7 @@ export default function DashboardPage() {
                       group_id: editingTask.group_id,
                       category_id: editingTask.category_id || null,
                       urgency_level: editingTask.urgency_level,
-                      due_date: editingTask.due_date || null,
-                      topic_id: editingTask.topic_id || null
+                      due_date: editingTask.due_date || null
                     });
                     setEditingTask(null);
                     refreshData();
@@ -1531,8 +1541,8 @@ export default function DashboardPage() {
                   <div>
                     <label className="block text-[9px] text-white/65 uppercase tracking-widest mb-1.5 font-bold">Assunto / Foco</label>
                     <select
-                      value={editingTask.topic_id || ''}
-                      onChange={(e) => setEditingTask({ ...editingTask, topic_id: e.target.value || null })}
+                      value={editingTask.category_id || ''}
+                      onChange={(e) => setEditingTask({ ...editingTask, category_id: e.target.value || null })}
                       className="w-full bg-black border border-white/20 p-2 text-xs focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase text-white"
                     >
                       <option value="">Livre / Sem Assunto</option>

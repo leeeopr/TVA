@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useProductivityStore } from '@/stores/productivityStore';
-import { db, Topic } from '@/lib/db';
+import { db, TaskCategory } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 import { 
   Plus, 
@@ -52,12 +52,19 @@ const WEEK_DAYS = [
 export default function WeeklyPlanningPage() {
   const { 
     settings, 
-    topics, 
+    categories, 
     weeklyPlans, 
     weeklyPlanTopics, 
     tasks,
     refreshData 
   } = useProductivityStore();
+
+  // Create seamless semantic bridge from categories to existing UI expectations
+  const topics = categories.map(cat => ({
+    ...cat,
+    color_id: cat.color || 'yellow',
+    description: cat.description || ''
+  }));
 
   // Weekly Date State
   const [currentMonday, setCurrentMonday] = useState<Date>(() => {
@@ -77,7 +84,7 @@ export default function WeeklyPlanningPage() {
     description: '',
     color_id: 'yellow'
   });
-  const [editingTopic, setEditingTopic] = useState<Topic | null>(null);
+  const [editingTopic, setEditingTopic] = useState<TaskCategory | null>(null);
   const [schedulingDay, setSchedulingDay] = useState<number | null>(null); // Weekday index for scheduled
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -92,8 +99,8 @@ export default function WeeklyPlanningPage() {
           setActivePlanId(plan.id);
           refreshData();
         }
-      } catch (err) {
-        console.error("Error setting weekly plan:", err);
+      } catch (err: any) {
+        console.error("Error setting weekly plan:", err?.message || err, err);
       }
     }
     loadPlan();
@@ -138,19 +145,33 @@ export default function WeeklyPlanningPage() {
     return `${format(currentMonday)} - ${format(sunday)}`;
   };
 
-  // CRUD Topic Functions
+  const getFirstGroup = () => {
+    const groups = db.getGroups();
+    return groups[0]?.id || 'group-default';
+  };
+
+  // CRUD Category Functions mapped to topics form
   const handleAddOrEditTopic = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topicForm.name.trim()) return;
     setIsSubmitting(true);
     try {
       sounds.playSuccessIndicator();
-      await db.saveTopic(
-        topicForm.name.trim(),
-        topicForm.description.trim() || null,
-        topicForm.color_id,
-        editingTopic?.id
-      );
+      if (editingTopic) {
+        await db.updateCategory(editingTopic.id, {
+          name: topicForm.name.trim(),
+          color: topicForm.color_id,
+          description: topicForm.description.trim() || null
+        } as any);
+      } else {
+        const defaultGroupId = getFirstGroup();
+        await db.saveCategory(
+          defaultGroupId,
+          topicForm.name.trim(),
+          topicForm.color_id,
+          topicForm.description.trim() || null
+        );
+      }
       
       // Cleanup
       setTopicForm({ name: '', description: '', color_id: 'yellow' });
@@ -158,33 +179,33 @@ export default function WeeklyPlanningPage() {
       setEditingTopic(null);
       refreshData();
     } catch (err) {
-      console.error("Failed saving topic:", err);
+      console.error("Failed saving topic/category:", err);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleStartEditTopic = (topic: Topic) => {
+  const handleStartEditTopic = (category: any) => {
     sounds.playButtonSwitch();
-    setEditingTopic(topic);
+    setEditingTopic(category);
     setTopicForm({
-      name: topic.name,
-      description: topic.description || '',
-      color_id: topic.color_id || 'yellow'
+      name: category.name,
+      description: category.description || '',
+      color_id: category.color_id || 'yellow'
     });
     setIsCreatingTopic(true);
   };
 
   const handleDeleteTopic = async (id: string) => {
-    if (!confirm('Deseja realmente remover este assunto? Todas as agendas vinculadas a ele nesta e em outras semanas serão liberadas.')) {
+    if (!confirm('Deseja realmente remover este assunto/categoria? Todas as tarefas e agendas vinculadas a ele serão liberadas.')) {
       return;
     }
     sounds.playAlarmBreak();
     try {
-      await db.deleteTopic(id);
+      await db.deleteCategory(id);
       refreshData();
     } catch (err) {
-      console.error("Failed deleting topic:", err);
+      console.error("Failed deleting category:", err);
     }
   };
 
@@ -197,7 +218,7 @@ export default function WeeklyPlanningPage() {
       setSchedulingDay(null);
       refreshData();
     } catch (err) {
-      console.error("Error scheduling topic:", err);
+      console.error("Error scheduling category:", err);
     }
   };
 
@@ -208,7 +229,7 @@ export default function WeeklyPlanningPage() {
       await db.deleteWeeklyPlanTopic(activePlanId, topicId, weekday);
       refreshData();
     } catch (err) {
-      console.error("Error unscheduling topic:", err);
+      console.error("Error unscheduling category:", err);
     }
   };
 
@@ -245,9 +266,9 @@ export default function WeeklyPlanningPage() {
         ? 'bg-[#33ff33] hover:bg-[#33ff33]/90' 
         : 'bg-[#00e5ff] hover:bg-[#00e5ff]/90'}`;
 
-  // Count active tasks for topic
-  const getTasksForTopic = (topicId: string) => {
-    return tasks.filter(t => t.topic_id === topicId);
+  // Count active tasks for category
+  const getTasksForTopic = (categoryId: string) => {
+    return tasks.filter(t => t.category_id === categoryId);
   };
 
   const getDayTopicsForPlan = (weekday: number) => {
@@ -255,11 +276,15 @@ export default function WeeklyPlanningPage() {
     return weeklyPlanTopics
       .filter(wpt => wpt.weekly_plan_id === activePlanId && wpt.weekday === weekday)
       .map(wpt => {
-        const matchingTopic = topics.find(t => t.id === wpt.topic_id);
+        const matchingCategory = categories.find(c => c.id === wpt.category_id);
+        const mappedCategory = matchingCategory ? {
+          ...matchingCategory,
+          color_id: matchingCategory.color || 'yellow'
+        } : undefined;
         return {
           wptId: wpt.id,
-          topicId: wpt.topic_id,
-          topic: matchingTopic
+          topicId: wpt.category_id,
+          topic: mappedCategory
         };
       })
       .filter(item => item.topic !== undefined);
