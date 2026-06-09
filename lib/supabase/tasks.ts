@@ -82,7 +82,11 @@ const generateUUID = (): string => {
 
 const getCurrentUserId = async (passedId?: string): Promise<string> => {
   if (passedId) return passedId;
-  const { data: { user } } = await supabase.auth.getUser();
+  let { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    const { data: { session } } = await supabase.auth.getSession();
+    user = session?.user ?? null;
+  }
   if (!user) {
     throw new Error('Usuário autenticado inválido ou nulo');
   }
@@ -142,15 +146,13 @@ export async function getTasks(userId?: string): Promise<Task[]> {
 }
 
 export async function createTask(task: Partial<Task>, userId?: string): Promise<Task> {
-  // 2. VALIDAR AUTH
-  const { data: { user } } = await supabase.auth.getUser();
-  
-  // 3. LOGS OBRIGATÓRIOS (AUTH USER)
-  console.log("AUTH USER", user);
-
-  if (!user) {
+  // 2. VALIDAR AUTH COM FALLBACK RESILIENTE
+  let resolvedUserId: string;
+  try {
+    resolvedUserId = await getCurrentUserId(userId || task.user_id);
+  } catch (err: any) {
     const errorMsg = 'Usuário nulo ou sessão inválida. Impossível criar a tarefa.';
-    console.error("SUPABASE ERROR", errorMsg);
+    console.error("SUPABASE ERROR", errorMsg, err);
     throw new Error(errorMsg);
   }
 
@@ -167,17 +169,15 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
     ? task.time_period
     : null;
 
-  // 4. VALIDAR PAYLOAD
-  // Toda task deve enviar: user_id, title, description, deadline, urgency, category_id, group_id, completed
+  // 4. VALIDAR PAYLOAD (We omit 'is_completed' as that is a client-side layout key, not a DB column)
   const payload: any = {
     id: taskId,
-    user_id: user.id,
+    user_id: resolvedUserId,
     title: task.title || 'Sem título',
     description: task.description || null,
     category_id: task.category_id || null,
     group_id: task.group_id || null,
     completed: rawCompleted,
-    is_completed: rawCompleted,
     position: position,
     deadline: rawDeadline,
     urgency: mappedUrgency,
@@ -199,15 +199,18 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
   console.log("SUPABASE RESPONSE ATTEMPT 1", data);
   console.log("SUPABASE ERROR ATTEMPT 1", error);
 
-  // Dynamic schema fallback if columns are missing: PostgrestError code 42703 (undefined_column)
-  if (error && error.code === '42703') {
-    console.warn("Detected missing columns in remote table schema. Retrying database save with pruned attributes...", error.message);
+  // Dynamic schema fallback if columns are missing: PostgrestError code 42703 (undefined_column) or PGRST204 (schema cache mismatch)
+  if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message?.includes('time_period') || error.message?.includes('is_completed'))) {
+    console.warn("Detected missing columns or cache mismatches in remote table schema. Retrying database save with pruned attributes...", error.message);
     const prunedPayload = { ...payload };
     delete prunedPayload.deadline;
     delete prunedPayload.urgency;
     delete prunedPayload.due_date;
     delete prunedPayload.urgency_level;
     delete prunedPayload.project_issue_id;
+    delete prunedPayload.time_period;
+    delete prunedPayload.task_period_id;
+    delete prunedPayload.is_completed;
 
     console.log("TASK PAYLOAD ATTEMPT 2 (PRUNED)", prunedPayload);
 
@@ -257,9 +260,8 @@ export async function updateTask(id: string, updates: Partial<Task>, userId?: st
     payload.urgency = rawUrgency === 'overdue' ? 'urgent' : rawUrgency;
   }
   if (updates.is_completed !== undefined || updates.completed !== undefined) {
-    const isCompleted = updates.is_completed || updates.completed || false;
+    const isCompleted = updates.is_completed !== undefined ? updates.is_completed : updates.completed;
     payload.completed = isCompleted;
-    payload.is_completed = isCompleted;
   }
   if (updates.notes !== undefined) payload.notes = updates.notes;
   if (updates.status !== undefined) payload.status = updates.status;
@@ -280,8 +282,8 @@ export async function updateTask(id: string, updates: Partial<Task>, userId?: st
 
   console.log("SUPABASE UPDATE RESPONSE ATTEMPT 1", { data, error });
 
-  if (error && error.code === '42703') {
-    console.warn("Detected missing columns on update. Retrying update with pruned attributes...", error.message);
+  if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message?.includes('time_period') || error.message?.includes('is_completed'))) {
+    console.warn("Detected missing columns or cache mismatches on update. Retrying update with pruned attributes...", error.message);
     const prunedPayload = { ...payload };
     delete prunedPayload.deadline;
     delete prunedPayload.urgency;
@@ -291,6 +293,10 @@ export async function updateTask(id: string, updates: Partial<Task>, userId?: st
     delete prunedPayload.status;
     delete prunedPayload.updated_by;
     delete prunedPayload.updated_at; // might be locked if column write fails
+    delete prunedPayload.time_period;
+    delete prunedPayload.task_period_id;
+    delete prunedPayload.project_issue_id;
+    delete prunedPayload.is_completed;
 
     console.log("TASK UPDATE PAYLOAD ATTEMPT 2 (PRUNED)", prunedPayload);
 
@@ -332,7 +338,7 @@ export async function toggleTask(id: string, completed: boolean, userId?: string
   const uid = await getCurrentUserId(userId);
   const { data, error } = await supabase
     .from('tasks')
-    .update({ completed, is_completed: completed })
+    .update({ completed })
     .eq('id', id)
     .eq('user_id', uid)
     .select()

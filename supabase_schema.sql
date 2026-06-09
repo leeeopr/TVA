@@ -94,6 +94,11 @@ CREATE TABLE IF NOT EXISTS public.task_periods (
 -- RLS AND POLICIES FOR TASK PERIODS
 ALTER TABLE public.task_periods ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow individual read" ON public.task_periods;
+DROP POLICY IF EXISTS "Allow individual insert" ON public.task_periods;
+DROP POLICY IF EXISTS "Allow individual update" ON public.task_periods;
+DROP POLICY IF EXISTS "Allow individual delete" ON public.task_periods;
+
 CREATE POLICY "Allow individual read" ON public.task_periods FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Allow individual insert" ON public.task_periods FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Allow individual update" ON public.task_periods FOR UPDATE USING (auth.uid() = user_id);

@@ -397,13 +397,6 @@ export class db {
       )
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'topics' },
-        () => {
-          this.pullFromSupabase();
-        }
-      )
-      .on(
-        'postgres_changes',
         { event: '*', schema: 'public', table: 'weekly_plans' },
         () => {
           this.pullFromSupabase();

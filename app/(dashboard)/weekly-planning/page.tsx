@@ -87,6 +87,16 @@ export default function WeeklyPlanningPage() {
   const [editingTopic, setEditingTopic] = useState<TaskCategory | null>(null);
   const [schedulingDay, setSchedulingDay] = useState<number | null>(null); // Weekday index for scheduled
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  // Initialize client mount status
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setIsClient(true);
+    }, 0);
+    db.initAuth();
+    return () => clearTimeout(handle);
+  }, []);
 
   // Sync / load active weekly plan
   useEffect(() => {
@@ -289,6 +299,8 @@ export default function WeeklyPlanningPage() {
       })
       .filter(item => item.topic !== undefined);
   };
+
+  if (!isClient) return null;
 
   return (
     <div className={`space-y-6 flex flex-col h-full animate-fade-in`}>
