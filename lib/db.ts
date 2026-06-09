@@ -6,12 +6,7 @@ import {
   updateTask as updateSupabaseTask, 
   deleteTask as deleteSupabaseTask, 
   reorderTasks as reorderSupabaseTasks, 
-  mapTaskFromDb,
-  getTaskPeriods as getSupabaseTaskPeriods,
-  createTaskPeriod as createSupabaseTaskPeriod,
-  updateTaskPeriod as updateSupabaseTaskPeriod,
-  reorderTaskPeriods as reorderSupabaseTaskPeriods,
-  deleteTaskPeriod as deleteSupabaseTaskPeriod
+  mapTaskFromDb
 } from './supabase/tasks';
 import {
   getProjects as getSupabaseProjects,
@@ -315,12 +310,7 @@ export class db {
   // Active in-memory arrays (ram fallback when supabase unconfigured/offline)
   private static ramGroups: TaskGroup[] = [];
   private static ramCategories: TaskCategory[] = [];
-  private static ramPeriods: TaskPeriod[] = [
-    { id: 'p-morning', user_id: 'user-default', name: 'Manhã', icon: '☀️', color: '#60a5fa', position: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 'p-afternoon', user_id: 'user-default', name: 'Pós-almoço', icon: '🌤', color: '#fbbf24', position: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 'p-evening', user_id: 'user-default', name: 'Noite', icon: '🌙', color: '#fb923c', position: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 'p-tomorrow', user_id: 'user-default', name: 'Amanhã', icon: '📅', color: '#c084fc', position: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-  ];
+  private static ramPeriods: TaskPeriod[] = [];
   private static ramTasks: Task[] = [];
   private static ramSessions: PomodoroSession[] = [];
   private static ramPresets: PomodoroPreset[] = [];
@@ -582,30 +572,9 @@ export class db {
         this.addLog(`CLOUD_SYNC: ${groupsData.length} TASK GROUPS SYNCHRONIZED RELATIONAL.`, 'success');
       }
 
-      // 4B. Fetch Task Periods
-      const { data: periodsData, error: periodsErr } = await supabase
-        .from('task_periods')
-        .select('*')
-        .eq('user_id', this.cachedUserId)
-        .order('position', { ascending: true });
-
-      if (periodsErr) {
-        this.addLog(`CLOUD_SYNC_WARN: COULD NOT FETCH TASK PERIODS: ${periodsErr.message}`, 'warning');
-      } else if (periodsData) {
-        if (periodsData.length === 0) {
-          // Initialize in-memory fallback periods (no Supabase write to prevent silent record auto-creation)
-          this.ramPeriods = [
-            { id: 'p-morning', user_id: this.cachedUserId, name: 'Manhã', icon: '☀️', color: '#60a5fa', position: 0, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-            { id: 'p-afternoon', user_id: this.cachedUserId, name: 'Pós-almoço', icon: '🌤', color: '#fbbf24', position: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-            { id: 'p-evening', user_id: this.cachedUserId, name: 'Noite', icon: '🌙', color: '#fb923c', position: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-            { id: 'p-tomorrow', user_id: this.cachedUserId, name: 'Amanhã', icon: '📅', color: '#c084fc', position: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-          ];
-          this.addLog(`CLOUD_SYNC: NO TASK PERIODS DEFINED. LOADED TEMPORARY VIRTUAL BLOCKS.`, 'info');
-        } else {
-          this.ramPeriods = periodsData;
-          this.addLog(`CLOUD_SYNC: ${periodsData.length} TASK PERIODS SYNCHRONIZED.`, 'success');
-        }
-      }
+      // 4B. Fetch Task Periods (Deprecated)
+      this.ramPeriods = [];
+      this.addLog(`CLOUD_SYNC: TASK PERIODS ARE DEPRECATED. SKIPPED SYNC.`, 'info');
 
       // 4C. Fetch Weekly Plans (Step 1B)
       try {
@@ -657,13 +626,6 @@ export class db {
       if (!tasksErr && tasksData) {
         this.ramTasks = (tasksData as any[]).map(t => {
           const mapped = mapTaskFromDb(t);
-          let pId = mapped.task_period_id;
-          if (!pId && mapped.time_period) {
-            const foundPeriod = this.ramPeriods.find(p => p.name.toLowerCase().includes(mapped.time_period!.toLowerCase()) || p.id.includes(mapped.time_period!));
-            if (foundPeriod) {
-              pId = foundPeriod.id;
-            }
-          }
 
           // Resolve group and category models
           const categoryObj = t.category;
@@ -671,20 +633,19 @@ export class db {
           
           const colorObj = groupObj?.color;
           const catColorObj = categoryObj?.color;
-          const periodObj = t.period || this.ramPeriods.find(p => p.id === pId);
 
           return {
             ...mapped,
-            task_period_id: pId,
+            task_period_id: null,
             urgency_level: mapped.is_completed ? 'low' : this.calculateUrgency(mapped.due_date),
             group_name: groupObj?.name || undefined,
             group_color: colorObj?.name || undefined,
             group_color_hex: colorObj?.hex_code || undefined,
             category_name: categoryObj?.name || undefined,
             category_color_hex: catColorObj?.hex_code || undefined,
-            period_name: periodObj?.name || undefined,
-            period_icon: periodObj?.icon || undefined,
-            period_color: periodObj?.color || undefined
+            period_name: undefined,
+            period_icon: undefined,
+            period_color: undefined
           };
         });
         this.addLog(`CLOUD_SYNC: ${tasksData.length} INTEGRATED TASKS RELATIONALLY ALIGNED IN RAM (FILTRADO: ${this.hideCompleted}).`, 'success');
@@ -1430,74 +1391,29 @@ export class db {
   }
 
   // ==========================================
-  // TASK PERIODS CRUD
+  // TASK PERIODS CRUD (Deprecated / Stubs for backwards compatibility)
   // ==========================================
   static getTaskPeriods(): TaskPeriod[] {
-    return this.ramPeriods.sort((a, b) => a.position - b.position);
+    return [];
   }
 
   static async saveTaskPeriod(name: string, icon: string, color: string): Promise<TaskPeriod> {
     const id = generateUUID();
-    const position = this.ramPeriods.length;
-
     const newPeriod: TaskPeriod = {
       id,
       user_id: this.cachedUserId,
       name,
       icon,
       color,
-      position,
+      position: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
-
-    this.ramPeriods.push(newPeriod);
-    this.addLog(`PERIOD CREATED: "${name}" REGISTERED IN SCHEDULER.`, 'success');
-
-    if (supabase && this.cachedUserId !== 'user-default') {
-      try {
-        const created = await createSupabaseTaskPeriod({
-          id,
-          name,
-          icon,
-          color,
-          position
-        });
-        this.ramPeriods = this.ramPeriods.map(p => p.id === id ? created : p);
-        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD SYNCED.`, 'success');
-      } catch (err: any) {
-        this.ramPeriods = this.ramPeriods.filter(p => p.id !== id);
-        this.addLog(`CLOUD_WRITE_ERR: PERIOD EXCEPTION: ${err.message}`, 'error');
-        throw err;
-      }
-    }
-
-    this.triggerDataRefreshCallbacks();
     return newPeriod;
   }
 
   static async updateTaskPeriod(id: string, updates: Partial<TaskPeriod>): Promise<TaskPeriod[]> {
-    const previousPeriods = [...this.ramPeriods];
-    this.ramPeriods = this.ramPeriods.map(p => {
-      if (p.id === id) {
-        return { ...p, ...updates, updated_at: new Date().toISOString() };
-      }
-      return p;
-    });
-
-    if (supabase && this.cachedUserId !== 'user-default') {
-      try {
-        await updateSupabaseTaskPeriod(id, updates);
-        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD UPDATE SYNCED.`, 'success');
-      } catch (err: any) {
-        this.ramPeriods = previousPeriods;
-        this.addLog(`CLOUD_WRITE_ERR: PERIOD UPDATE EXCEPTION: ${err.message}`, 'error');
-        throw err;
-      }
-    }
-
-    this.triggerDataRefreshCallbacks();
-    return this.getTaskPeriods();
+    return [];
   }
 
   static async deleteTaskPeriod(
@@ -1505,49 +1421,10 @@ export class db {
     transitionMode: 'move' | 'unassign' | 'delete',
     targetPeriodId?: string
   ): Promise<TaskPeriod[]> {
-    const previousPeriods = [...this.ramPeriods];
-    const previousTasks = [...this.ramTasks];
-
-    // Optimistic cache update
-    if (transitionMode === 'move' && targetPeriodId) {
-      this.ramTasks = this.ramTasks.map(t => t.task_period_id === id ? { ...t, task_period_id: targetPeriodId } : t);
-    } else if (transitionMode === 'unassign') {
-      this.ramTasks = this.ramTasks.map(t => t.task_period_id === id ? { ...t, task_period_id: null } : t);
-    } else if (transitionMode === 'delete') {
-      this.ramTasks = this.ramTasks.filter(t => t.task_period_id !== id);
-    }
-
-    this.ramPeriods = this.ramPeriods.filter(p => p.id !== id);
-    this.addLog(`PERIOD REMOVED: ARCHIVE RETIRED FROM SERVICE.`, 'error');
-
-    if (supabase && this.cachedUserId !== 'user-default') {
-      try {
-        await deleteSupabaseTaskPeriod(id, transitionMode, targetPeriodId);
-        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD DELETION COMPLETED IN SUPABASE.`, 'success');
-      } catch (err: any) {
-        this.ramPeriods = previousPeriods;
-        this.ramTasks = previousTasks;
-        this.addLog(`CLOUD_WRITE_ERR: PERIOD DELETE EXCEPTION: ${err.message}`, 'error');
-        throw err;
-      }
-    }
-
-    this.triggerDataRefreshCallbacks();
-    return this.getTaskPeriods();
+    return [];
   }
 
   static async reorderTaskPeriods(reordered: TaskPeriod[]): Promise<void> {
-    const mapped = reordered.map((p, idx) => ({ ...p, position: idx }));
-    this.ramPeriods = mapped;
-
-    if (supabase && this.cachedUserId !== 'user-default') {
-      try {
-        await reorderSupabaseTaskPeriods(mapped);
-        this.addLog(`CLOUD_WRITE_SUCCESS: PERIOD SEQUENCE OPTIMIZED.`, 'success');
-      } catch (err: any) {
-        this.addLog(`CLOUD_WRITE_ERR: PERIOD REORDER EXCEPTION: ${err.message}`, 'error');
-      }
-    }
     this.triggerDataRefreshCallbacks();
   }
 
@@ -1903,5 +1780,66 @@ export class db {
       wpt => !(wpt.weekly_plan_id === weeklyPlanId && wpt.weekday === weekday)
     );
     this.triggerDataRefreshCallbacks();
+  }
+
+  // ==========================================
+  // CUSTOM ADVANCED QUERY METHODS (SUPABASE EXCLUSIVE)
+  // ==========================================
+  static async fetchTodaysCategoriesWithTasks(weekday: number, mondayStr: string): Promise<TaskCategory[]> {
+    if (!supabase || this.cachedUserId === 'user-default') {
+      return [];
+    }
+
+    try {
+      // 1. Get weekly plan
+      const { data: plans } = await supabase
+        .from('weekly_plans')
+        .select('id')
+        .eq('week_start_date', mondayStr)
+        .eq('user_id', this.cachedUserId);
+
+      if (!plans || plans.length === 0) return [];
+      const planId = plans[0].id;
+
+      // 2. Query categories that have weekly_plan_topics for this plan and weekday,
+      // and have at least one pending (completed: false) task. We run nested subquery style / Join in Supabase
+      const { data: topicData, error: topicsErr } = await supabase
+        .from('weekly_plan_topics')
+        .select('category_id')
+        .eq('weekly_plan_id', planId)
+        .eq('weekday', weekday);
+
+      if (topicsErr || !topicData || topicData.length === 0) return [];
+      const categoryIds = topicData.map((t: any) => t.category_id);
+
+      // Now query tasks to find which of these categoryIds has at least one pending task.
+      const { data: activeTasks, error: tasksErr } = await supabase
+        .from('tasks')
+        .select('category_id')
+        .eq('completed', false)
+        .in('category_id', categoryIds);
+
+      if (tasksErr || !activeTasks || activeTasks.length === 0) return [];
+      const activeIds = Array.from(new Set(activeTasks.map((t: any) => t.category_id)));
+
+      // Fetch the full categories with groups
+      const { data: finalCats, error: finalErr } = await supabase
+        .from('task_categories')
+        .select(`
+          *,
+          group:task_groups(
+            *,
+            color:custom_colors(*)
+          ),
+          color:custom_colors(*)
+        `)
+        .in('id', activeIds);
+
+      if (finalErr || !finalCats) return [];
+      return finalCats;
+    } catch (err) {
+      console.error("fetchTodaysCategoriesWithTasks failed, searching on fallback:", err);
+      return [];
+    }
   }
 }

@@ -72,14 +72,12 @@ export default function ProjectsPage() {
   
   const [taskGroupSelect, setTaskGroupSelect] = useState<string>('');
   const [taskCategorySelect, setTaskCategorySelect] = useState<string>('');
-  const [taskPeriodSelect, setTaskPeriodSelect] = useState<string>('');
   const [taskDueDate, setTaskDueDate] = useState<string>('');
   const [taskUrgency, setTaskUrgency] = useState<'low' | 'moderate' | 'urgent'>('moderate');
 
   // Metadata loaders
   const [groups, setGroups] = useState<TaskGroup[]>([]);
   const [categories, setCategories] = useState<TaskCategory[]>([]);
-  const [periods, setPeriods] = useState<TaskPeriod[]>([]);
 
   // Prevent server hydration mismatches
   useEffect(() => {
@@ -115,10 +113,9 @@ export default function ProjectsPage() {
       setIssues([]);
     }
 
-    // Refresh groups, categories & periods
+    // Refresh groups, categories
     setGroups(db.getGroups());
     setCategories(db.getCategories());
-    setPeriods(db.getTaskPeriods());
   }, [selectedProjectId, showArchived]);
 
   // Handle db reactivity broadcasts
@@ -294,8 +291,6 @@ export default function ProjectsPage() {
       setTaskGroupSelect('');
       setTaskCategorySelect('');
     }
-    
-    setTaskPeriodSelect(periods.length > 0 ? periods[0].id : '');
   };
 
   // Add a task to batch generator lists
@@ -322,9 +317,9 @@ export default function ProjectsPage() {
       description: `Task gerada a partir do projeto: ${activeProject?.name || ''} // Pendência: ${activeIssueForTaskGen.title}`,
       groupId: taskGroupSelect,
       categoryId: taskCategorySelect || null,
-      taskPeriodId: taskPeriodSelect || null,
+      taskPeriodId: null,
       dueDate: taskDueDate || null,
-      timePeriod: periods.find(p => p.id === taskPeriodSelect)?.name || null
+      timePeriod: null
     }));
 
     await db.generateTasksFromIssue(activeIssueForTaskGen.id, tasksToPush);
@@ -1140,19 +1135,6 @@ export default function ProjectsPage() {
                   </select>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="uppercase tracking-widest font-black text-[11px] text-[var(--color-amber)] font-bold">Período de Rotina</label>
-                  <select
-                    value={taskPeriodSelect}
-                    onChange={(e) => setTaskPeriodSelect(e.target.value)}
-                    className="bg-black border border-[var(--color-amber)]/40 p-2 text-[var(--color-amber)] rounded outline-none"
-                  >
-                    <option value="">Nenhum Período</option>
-                    {periods.map(per => (
-                      <option key={per.id} value={per.id}>{per.icon} {per.name.toUpperCase()}</option>
-                    ))}
-                  </select>
-                </div>
 
                 <div className="flex flex-col gap-1.5">
                   <label className="uppercase tracking-widest font-black text-[11px] text-[var(--color-amber)] font-bold">Prazo Limite / Deadline</label>

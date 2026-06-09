@@ -162,6 +162,11 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
   const mappedUrgency = rawUrgency === 'overdue' ? 'urgent' : rawUrgency;
   const rawCompleted = task.is_completed || task.completed || false;
 
+  const validLegacyPeriods = ['morning', 'afternoon', 'evening', 'tomorrow'];
+  const checkedTimePeriod = task.time_period && validLegacyPeriods.includes(task.time_period)
+    ? task.time_period
+    : null;
+
   // 4. VALIDAR PAYLOAD
   // Toda task deve enviar: user_id, title, description, deadline, urgency, category_id, group_id, completed
   const payload: any = {
@@ -176,7 +181,7 @@ export async function createTask(task: Partial<Task>, userId?: string): Promise<
     position: position,
     deadline: rawDeadline,
     urgency: mappedUrgency,
-    time_period: task.time_period || null,
+    time_period: checkedTimePeriod,
     task_period_id: task.task_period_id || null,
     project_issue_id: task.project_issue_id || null
   };
@@ -237,7 +242,12 @@ export async function updateTask(id: string, updates: Partial<Task>, userId?: st
   if (updates.category_id !== undefined) payload.category_id = updates.category_id;
   if (updates.task_period_id !== undefined) payload.task_period_id = updates.task_period_id;
   if (updates.position !== undefined) payload.position = updates.position;
-  if (updates.time_period !== undefined) payload.time_period = updates.time_period;
+  if (updates.time_period !== undefined) {
+    const validLegacyPeriods = ['morning', 'afternoon', 'evening', 'tomorrow'];
+    payload.time_period = updates.time_period && validLegacyPeriods.includes(updates.time_period)
+      ? updates.time_period
+      : null;
+  }
 
   if (updates.due_date !== undefined || updates.deadline !== undefined) {
     payload.deadline = updates.due_date || updates.deadline || null;
