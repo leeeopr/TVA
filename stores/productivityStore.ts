@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod, TaskCategory, WeeklyPlan, WeeklyPlanTopic } from '@/lib/db';
+import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod, TaskCategory, WeeklyPlan, WeeklyPlanTopic, AgendaBlock, AgendaTodo } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 
 interface ProductivityState {
@@ -9,6 +9,8 @@ interface ProductivityState {
   categories: TaskCategory[];
   weeklyPlans: WeeklyPlan[];
   weeklyPlanTopics: WeeklyPlanTopic[];
+  agendaBlocks: AgendaBlock[];
+  agendaTodos: AgendaTodo[];
   stats: DailyStatistics | null;
   settings: Settings;
   terminalLogs: SystemTerminalLog[];
@@ -47,6 +49,8 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
   categories: [],
   weeklyPlans: [],
   weeklyPlanTopics: [],
+  agendaBlocks: [],
+  agendaTodos: [],
   stats: null,
   settings: {
     user_id: 'user-default',
@@ -79,6 +83,8 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
       categories: db.getCategories(),
       weeklyPlans: db.getWeeklyPlans(),
       weeklyPlanTopics: db.getWeeklyPlanTopics(),
+      agendaBlocks: db.getAgendaBlocks(),
+      agendaTodos: db.getAgendaTodos(),
       stats: db.getStats(),
       settings: db.getSettings(),
       terminalLogs: db.getLogs(),

@@ -31,6 +31,20 @@ import {
   deleteWeeklyPlanTopic as deleteSupabaseWeeklyPlanTopic,
   clearWeeklyPlanDay as clearSupabaseWeeklyPlanDay
 } from './supabase/weeklyPlans';
+import {
+  getAgendaBlocks,
+  createAgendaBlock,
+  updateAgendaBlock,
+  deleteAgendaBlock,
+  getAgendaTodos,
+  createAgendaTodo,
+  updateAgendaTodo,
+  deleteAgendaTodo,
+  AgendaBlock,
+  AgendaTodo
+} from './supabase/agenda';
+
+export type { AgendaBlock, AgendaTodo };
 
 // ==========================================
 // RETRO-FUTURISTIC TERMINAL DATABANK ADAPTER
@@ -319,6 +333,8 @@ export class db {
   private static ramIssues: ProjectIssue[] = [];
   private static ramWeeklyPlans: WeeklyPlan[] = [];
   private static ramWeeklyPlanTopics: WeeklyPlanTopic[] = [];
+  private static ramAgendaBlocks: AgendaBlock[] = [];
+  private static ramAgendaTodos: AgendaTodo[] = [];
 
   // Terminal logging
   static addLog(text: string, type: 'info' | 'success' | 'warning' | 'error' | 'system' = 'info') {
@@ -735,6 +751,17 @@ export class db {
       } catch (projErr) {
         // Safe skip on unmigrated / outdated database clients
         console.warn("Skipped database loading of projects; tables might not exist yet.", projErr);
+      }
+
+      // 9. Agenda Blocks & Todos module synchronization
+      try {
+        const blocks = await getAgendaBlocks();
+        this.ramAgendaBlocks = blocks;
+        const todos = await getAgendaTodos();
+        this.ramAgendaTodos = todos;
+        this.addLog(`CLOUD_SYNC: ${blocks.length} AGENDA BLOCKS AND ${todos.length} PENDING ITEMS SYNCHRONIZED.`, 'success');
+      } catch (agendaErr) {
+        console.warn("Skipped database loading of agenda; tables might not exist yet.", agendaErr);
       }
 
       this.triggerDataRefreshCallbacks();
@@ -1726,6 +1753,246 @@ export class db {
 
     this.addLog(`TASKS COMPILED SUCCESSFULLY FOR WORKSTREAM RELAXATION.`, 'success');
     this.triggerDataRefreshCallbacks();
+  }
+
+  // ==========================================
+  // REAL-TIME AGENDA SYSTEM WRAPPERS (EXCLUSIVAMENTE SUPABASE)
+  // ==========================================
+
+  static getAgendaBlocks(): AgendaBlock[] {
+    if (this.ramAgendaBlocks.length === 0 && this.cachedUserId === 'user-default') {
+      this.ramAgendaBlocks = [
+        {
+          id: 'block-biologia',
+          user_id: 'user-default',
+          day_of_week: 0, // Segunda
+          start_time: '07:30',
+          end_time: '10:00',
+          name: 'Aula de Biologia',
+          color: 'blue',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: 'block-foco-web',
+          user_id: 'user-default',
+          day_of_week: 0, // Segunda
+          start_time: '10:15',
+          end_time: '12:30',
+          name: 'Desenvolvimento Web',
+          color: 'green',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ];
+    }
+    return this.ramAgendaBlocks;
+  }
+
+  static getAgendaTodos(): AgendaTodo[] {
+    if (this.ramAgendaTodos.length === 0 && this.cachedUserId === 'user-default') {
+      this.ramAgendaTodos = [
+        {
+          id: 'todo-bio-1',
+          user_id: 'user-default',
+          block_id: 'block-biologia',
+          title: 'Assistir aula sobre genética',
+          completed: false,
+          group_id: null,
+          category_id: null,
+          position: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: 'todo-bio-2',
+          user_id: 'user-default',
+          block_id: 'block-biologia',
+          title: 'Resolver lista 03',
+          completed: false,
+          group_id: null,
+          category_id: null,
+          position: 1,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: 'todo-bio-3',
+          user_id: 'user-default',
+          block_id: 'block-biologia',
+          title: 'Revisar anotações',
+          completed: true,
+          group_id: null,
+          category_id: null,
+          position: 2,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: 'todo-web-1',
+          user_id: 'user-default',
+          block_id: 'block-foco-web',
+          title: 'Implementar as interfaces da agenda',
+          completed: false,
+          group_id: null,
+          category_id: null,
+          position: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ];
+    }
+    return this.ramAgendaTodos;
+  }
+
+  static async saveAgendaBlock(dayOfWeek: number, startTime: string, endTime: string, name: string, color?: string): Promise<AgendaBlock> {
+    const tempId = 'block-' + Math.random().toString(36).substr(2, 9);
+    const newBlock: AgendaBlock = {
+      id: tempId,
+      user_id: this.cachedUserId,
+      day_of_week: dayOfWeek,
+      start_time: startTime,
+      end_time: endTime,
+      name,
+      color: color || 'blue',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramAgendaBlocks.push(newBlock);
+    this.addLog(`AGENDA_WRITE: BLOCK "${name}" ADDED TO RAM TEMPLATE`, 'success');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        const created = await createAgendaBlock({ day_of_week: dayOfWeek, start_time: startTime, end_time: endTime, name, color });
+        this.ramAgendaBlocks = this.ramAgendaBlocks.map(b => b.id === tempId ? created : b);
+        this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA BLOCK PERSISTED TO SUPABASE`, 'success');
+      } catch (err: any) {
+        this.ramAgendaBlocks = this.ramAgendaBlocks.filter(b => b.id !== tempId);
+        this.addLog(`CLOUD_WRITE_ERR: BLOCK CREATE FAILED: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return newBlock;
+  }
+
+  static async updateAgendaBlock(id: string, updates: Partial<AgendaBlock>): Promise<AgendaBlock[]> {
+    this.ramAgendaBlocks = this.ramAgendaBlocks.map(b => b.id === id ? { ...b, ...updates, updated_at: new Date().toISOString() } : b);
+    
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updateAgendaBlock(id, updates);
+        this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA BLOCK UPDATED ON SUPABASE`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: BLOCK EDIT FAILED: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramAgendaBlocks;
+  }
+
+  static async deleteAgendaBlock(id: string): Promise<AgendaBlock[]> {
+    this.ramAgendaBlocks = this.ramAgendaBlocks.filter(b => b.id !== id);
+    this.ramAgendaTodos = this.ramAgendaTodos.filter(t => t.block_id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deleteAgendaBlock(id);
+        this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA BLOCK WIPED FROM SUPABASE`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: BLOCK DELETE FAILED: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramAgendaBlocks;
+  }
+
+  static async duplicateAgendaBlock(id: string, targetDayOfWeek?: number): Promise<AgendaBlock | null> {
+    const block = this.ramAgendaBlocks.find(b => b.id === id);
+    if (!block) return null;
+
+    const blockTodos = this.ramAgendaTodos.filter(t => t.block_id === id);
+    const targetDay = targetDayOfWeek !== undefined ? targetDayOfWeek : block.day_of_week;
+
+    const duplicatedBlock = await this.saveAgendaBlock(
+      targetDay,
+      block.start_time,
+      block.end_time,
+      `${block.name} (Cópia)`,
+      block.color || undefined
+    );
+
+    for (const todo of blockTodos) {
+      await this.saveAgendaTodo(duplicatedBlock.id, todo.title, todo.group_id, todo.category_id);
+    }
+
+    return duplicatedBlock;
+  }
+
+  static async saveAgendaTodo(blockId: string, title: string, groupId?: string | null, categoryId?: string | null): Promise<AgendaTodo> {
+    const tempId = 'todo-' + Math.random().toString(36).substr(2, 9);
+    const maxPos = this.ramAgendaTodos.filter(t => t.block_id === blockId).length;
+
+    const newTodo: AgendaTodo = {
+      id: tempId,
+      user_id: this.cachedUserId,
+      block_id: blockId,
+      title,
+      completed: false,
+      group_id: groupId || null,
+      category_id: categoryId || null,
+      position: maxPos,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramAgendaTodos.push(newTodo);
+    this.addLog(`AGENDA_WRITE: TODO "${title}" SEEDED INTO BLOCK RAM`, 'success');
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        const created = await createAgendaTodo({ block_id: blockId, title, group_id: groupId, category_id: categoryId, position: maxPos });
+        this.ramAgendaTodos = this.ramAgendaTodos.map(t => t.id === tempId ? created : t);
+        this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA ITEM PERSISTED KEY-VALUE`, 'success');
+      } catch (err: any) {
+        this.ramAgendaTodos = this.ramAgendaTodos.filter(t => t.id !== tempId);
+        this.addLog(`CLOUD_WRITE_ERR: ITEM CREATE PARTITION FAIL: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return newTodo;
+  }
+
+  static async updateAgendaTodo(id: string, updates: Partial<AgendaTodo>): Promise<AgendaTodo[]> {
+    this.ramAgendaTodos = this.ramAgendaTodos.map(t => t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updateAgendaTodo(id, updates);
+        this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA ITEM STATE MODIFIED`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: ITEM UPDATE FAIL: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramAgendaTodos;
+  }
+
+  static async deleteAgendaTodo(id: string): Promise<AgendaTodo[]> {
+    this.ramAgendaTodos = this.ramAgendaTodos.filter(t => t.id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deleteAgendaTodo(id);
+        this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA ITEM DELETED FROM CLOUD`, 'success');
+      } catch (err: any) {
+        this.addLog(`CLOUD_WRITE_ERR: ITEM SCRUB CORRUPTION: ${err.message}`, 'error');
+      }
+    }
+    this.triggerDataRefreshCallbacks();
+    return this.ramAgendaTodos;
   }
 
   // ==========================================

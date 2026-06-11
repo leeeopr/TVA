@@ -2,248 +2,102 @@
 
 import React, { useState, useEffect } from 'react';
 import { useProductivityStore } from '@/stores/productivityStore';
-import { db, TaskCategory } from '@/lib/db';
+import { db, AgendaBlock, AgendaTodo } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 import { 
   Plus, 
   Trash2, 
   X, 
   Calendar, 
-  ArrowLeft, 
-  ArrowRight, 
   Edit3, 
-  FolderMinus, 
-  BookOpen, 
-  Info,
-  HelpCircle,
-  Hash,
+  Copy, 
+  CheckSquare, 
+  Square,
   Sparkles,
   Layers,
-  FileText
+  Folder,
+  Tag,
+  Clock,
+  ArrowRightLeft,
+  Settings as SettingsIcon
 } from 'lucide-react';
 
-interface TopicFormState {
-  id?: string;
-  name: string;
-  description: string;
-  color_id: string; // Color name or ID
-}
-
-const PRESET_CRT_COLORS = [
-  { id: 'blue', label: 'Azul', hex: '#60a5fa', border: 'border-blue-500/30', bg: 'bg-blue-500/10', text: 'text-blue-400' },
-  { id: 'purple', label: 'Roxo', hex: '#c084fc', border: 'border-purple-500/30', bg: 'bg-purple-500/10', text: 'text-purple-400' },
-  { id: 'green', label: 'Verde/Sinc', hex: '#33ff33', border: 'border-green-500/30', bg: 'bg-green-500/10', text: 'text-emerald-400' },
-  { id: 'red', label: 'Vermelho/Falha', hex: '#ef4444', border: 'border-red-500/30', bg: 'bg-red-500/10', text: 'text-red-400' },
-  { id: 'yellow', label: 'Ambar/Foco', hex: '#ffb347', border: 'border-amber-500/30', bg: 'bg-amber-500/10', text: 'text-amber-400' },
-  { id: 'cyan', label: 'Ciano', hex: '#00e5ff', border: 'border-cyan-500/30', bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
-  { id: 'orange', label: 'Laranja', hex: '#fb923c', border: 'border-orange-500/30', bg: 'bg-orange-500/10', text: 'text-orange-400' }
+const CRT_COLOR_PRESETS = [
+  { id: 'blue', label: 'Azul', hex: '#60a5fa', border: 'border-blue-500/35', bg: 'bg-blue-500/10', text: 'text-blue-400' },
+  { id: 'purple', label: 'Roxo', hex: '#c084fc', border: 'border-purple-500/35', bg: 'bg-purple-500/10', text: 'text-purple-400' },
+  { id: 'green', label: 'Verde', hex: '#33ff33', border: 'border-green-500/35', bg: 'bg-green-500/10', text: 'text-emerald-400' },
+  { id: 'red', label: 'Vermelho', hex: '#ef4444', border: 'border-red-500/35', bg: 'bg-red-500/10', text: 'text-red-400' },
+  { id: 'amber', label: 'Ambar', hex: '#ffb347', border: 'border-amber-500/35', bg: 'bg-amber-500/10', text: 'text-amber-400' },
+  { id: 'cyan', label: 'Ciano', hex: '#00e5ff', border: 'border-cyan-500/35', bg: 'bg-cyan-500/10', text: 'text-cyan-400' },
+  { id: 'orange', label: 'Laranja', hex: '#fb923c', border: 'border-orange-500/35', bg: 'bg-orange-500/10', text: 'text-orange-400' }
 ];
 
 const WEEK_DAYS = [
-  { label: 'Segunda-feira', value: 1, short: 'SEG' },
-  { label: 'Terça-feira', value: 2, short: 'TER' },
-  { label: 'Quarta-feira', value: 3, short: 'QUA' },
-  { label: 'Quinta-feira', value: 4, short: 'QUI' },
-  { label: 'Sexta-feira', value: 5, short: 'SEX' },
-  { label: 'Sábado', value: 6, short: 'SAB' },
-  { label: 'Domingo', value: 0, short: 'DOM' },
+  { label: 'Segunda', value: 0, short: 'SEG' },
+  { label: 'Terça', value: 1, short: 'TER' },
+  { label: 'Quarta', value: 2, short: 'QUA' },
+  { label: 'Quinta', value: 3, short: 'QUI' },
+  { label: 'Sexta', value: 4, short: 'SEX' },
+  { label: 'Sábado', value: 5, short: 'SAB' },
+  { label: 'Domingo', value: 6, short: 'DOM' },
 ];
 
 export default function WeeklyPlanningPage() {
   const { 
     settings, 
+    agendaBlocks, 
+    agendaTodos, 
     categories, 
-    weeklyPlans, 
-    weeklyPlanTopics, 
-    tasks,
     refreshData 
   } = useProductivityStore();
 
-  // Create seamless semantic bridge from categories to existing UI expectations
-  const topics = categories.map(cat => ({
-    ...cat,
-    color_id: cat.color || 'yellow',
-    description: cat.description || ''
-  }));
-
-  // Weekly Date State
-  const [currentMonday, setCurrentMonday] = useState<Date>(() => {
-    const today = new Date();
-    const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-    const m = new Date(today.setDate(diff));
-    m.setHours(0, 0, 0, 0);
-    return m;
-  });
-
-  // UI state
-  const [activePlanId, setActivePlanId] = useState<string | null>(null);
-  const [isCreatingTopic, setIsCreatingTopic] = useState(false);
-  const [topicForm, setTopicForm] = useState<TopicFormState>({
-    name: '',
-    description: '',
-    color_id: 'yellow'
-  });
-  const [editingTopic, setEditingTopic] = useState<TaskCategory | null>(null);
-  const [schedulingDay, setSchedulingDay] = useState<number | null>(null); // Weekday index for scheduled
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
-  // Initialize client mount status
+  // Modal / Form state for Block CRUD
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+  const [editingBlock, setEditingBlock] = useState<AgendaBlock | null>(null);
+  
+  const [blockName, setBlockName] = useState('');
+  const [blockDay, setBlockDay] = useState(0);
+  const [blockStart, setBlockStart] = useState('08:00');
+  const [blockEnd, setBlockEnd] = useState('10:00');
+  const [blockColor, setBlockColor] = useState('blue');
+
+  // Visão Micro State: Bloco ativo para detalhamento das pendências
+  const [activeMicroBlock, setActiveMicroBlock] = useState<AgendaBlock | null>(null);
+  const [newTodoTitle, setNewTodoTitle] = useState('');
+  const [selectedTodoGroupId, setSelectedTodoGroupId] = useState('');
+  const [selectedTodoCategoryId, setSelectedTodoCategoryId] = useState('');
+  const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
+  const [editingTodoTitle, setEditingTodoTitle] = useState('');
+
+  // Duplicate states
+  const [duplicatingBlockId, setDuplicatingBlockId] = useState<string | null>(null);
+  const [duplicateTargetDay, setDuplicateTargetDay] = useState<number>(0);
+
   useEffect(() => {
-    const handle = setTimeout(() => {
+    setTimeout(() => {
       setIsClient(true);
     }, 0);
     db.initAuth();
-    return () => clearTimeout(handle);
   }, []);
 
-  // Sync / load active weekly plan
+  // Sync refresh of micro views when data updates
   useEffect(() => {
-    let active = true;
-    async function loadPlan() {
-      const dateStr = currentMonday.toISOString().split('T')[0];
-      try {
-        const plan = await db.getOrCreateWeeklyPlan(dateStr);
-        if (active) {
-          setActivePlanId(plan.id);
-          refreshData();
+    if (activeMicroBlock) {
+      const updated = agendaBlocks.find(b => b.id === activeMicroBlock.id);
+      setTimeout(() => {
+        if (updated) {
+          setActiveMicroBlock(updated);
+        } else {
+          setActiveMicroBlock(null);
         }
-      } catch (err: any) {
-        console.error("Error setting weekly plan:", err?.message || err, err);
-      }
+      }, 0);
     }
-    loadPlan();
-    return () => { active = false; };
-  }, [currentMonday, refreshData]);
+  }, [agendaBlocks, activeMicroBlock]);
 
-  // Navigate Weeks
-  const handlePrevWeek = () => {
-    sounds.playButtonSwitch();
-    const prev = new Date(currentMonday);
-    prev.setDate(prev.getDate() - 7);
-    setCurrentMonday(prev);
-  };
-
-  const handleNextWeek = () => {
-    sounds.playButtonSwitch();
-    const next = new Date(currentMonday);
-    next.setDate(next.getDate() + 7);
-    setCurrentMonday(next);
-  };
-
-  const handleResetToCurrentWeek = () => {
-    sounds.playButtonSwitch();
-    const today = new Date();
-    const day = today.getDay();
-    const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-    const m = new Date(today.setDate(diff));
-    m.setHours(0, 0, 0, 0);
-    setCurrentMonday(m);
-  };
-
-  // Formatted date string
-  const formatWeekRange = () => {
-    const format = (d: Date) => {
-      const day = String(d.getDate()).padStart(2, '0');
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      const year = d.getFullYear();
-      return `${day}/${month}/${year}`;
-    };
-    const sunday = new Date(currentMonday);
-    sunday.setDate(sunday.getDate() + 6);
-    return `${format(currentMonday)} - ${format(sunday)}`;
-  };
-
-  const getFirstGroup = () => {
-    const groups = db.getGroups();
-    return groups[0]?.id || 'group-default';
-  };
-
-  // CRUD Category Functions mapped to topics form
-  const handleAddOrEditTopic = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!topicForm.name.trim()) return;
-    setIsSubmitting(true);
-    try {
-      sounds.playSuccessIndicator();
-      if (editingTopic) {
-        await db.updateCategory(editingTopic.id, {
-          name: topicForm.name.trim(),
-          color: topicForm.color_id,
-          description: topicForm.description.trim() || null
-        } as any);
-      } else {
-        const defaultGroupId = getFirstGroup();
-        await db.saveCategory(
-          defaultGroupId,
-          topicForm.name.trim(),
-          topicForm.color_id,
-          topicForm.description.trim() || null
-        );
-      }
-      
-      // Cleanup
-      setTopicForm({ name: '', description: '', color_id: 'yellow' });
-      setIsCreatingTopic(false);
-      setEditingTopic(null);
-      refreshData();
-    } catch (err) {
-      console.error("Failed saving topic/category:", err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleStartEditTopic = (category: any) => {
-    sounds.playButtonSwitch();
-    setEditingTopic(category);
-    setTopicForm({
-      name: category.name,
-      description: category.description || '',
-      color_id: category.color_id || 'yellow'
-    });
-    setIsCreatingTopic(true);
-  };
-
-  const handleDeleteTopic = async (id: string) => {
-    if (!confirm('Deseja realmente remover este assunto/categoria? Todas as tarefas e agendas vinculadas a ele serão liberadas.')) {
-      return;
-    }
-    sounds.playAlarmBreak();
-    try {
-      await db.deleteCategory(id);
-      refreshData();
-    } catch (err) {
-      console.error("Failed deleting category:", err);
-    }
-  };
-
-  // Agenda Assignment Functions
-  const handleAssignTopicToDay = async (topicId: string, weekday: number) => {
-    if (!activePlanId) return;
-    sounds.playButtonSwitch();
-    try {
-      await db.saveWeeklyPlanTopic(activePlanId, topicId, weekday);
-      setSchedulingDay(null);
-      refreshData();
-    } catch (err) {
-      console.error("Error scheduling category:", err);
-    }
-  };
-
-  const handleUnscheduleTopic = async (topicId: string, weekday: number) => {
-    if (!activePlanId) return;
-    sounds.playAlarmBreak();
-    try {
-      await db.deleteWeeklyPlanTopic(activePlanId, topicId, weekday);
-      refreshData();
-    } catch (err) {
-      console.error("Error unscheduling category:", err);
-    }
-  };
-
-  // Styling setups matching theme
+  // Styling Setups (matching terminal theme settings)
   const borderStyle = settings.theme_mode === 'AMBER' 
     ? 'border-[#ffb347] border-glow' 
     : settings.theme_mode === 'GREEN' 
@@ -255,6 +109,12 @@ export default function WeeklyPlanningPage() {
     : settings.theme_mode === 'GREEN'
       ? 'text-[#33ff33]'
       : 'text-[#00e5ff]';
+
+  const headingStyle = settings.theme_mode === 'AMBER'
+    ? 'text-[#ffb347] font-black'
+    : settings.theme_mode === 'GREEN'
+      ? 'text-[#33ff33] font-black'
+      : 'text-[#00e5ff] font-black';
 
   const bgHeader = settings.theme_mode === 'AMBER'
     ? 'bg-[#ffe7cc]/5'
@@ -276,35 +136,164 @@ export default function WeeklyPlanningPage() {
         ? 'bg-[#33ff33] hover:bg-[#33ff33]/90' 
         : 'bg-[#00e5ff] hover:bg-[#00e5ff]/90'}`;
 
-  // Count active tasks for category
-  const getTasksForTopic = (categoryId: string) => {
-    return db.getTaskStats().filter(t => t.category_id === categoryId);
+  // ==========================================
+  // BLOCKS CRUD HANDLERS
+  // ==========================================
+  const handleOpenAddBlock = (dayIndex: number) => {
+    sounds.playButtonSwitch();
+    setEditingBlock(null);
+    setBlockName('');
+    setBlockDay(dayIndex);
+    setBlockStart('08:00');
+    setBlockEnd('10:00');
+    setBlockColor('blue');
+    setIsBlockModalOpen(true);
   };
 
-  const getDayTopicsForPlan = (weekday: number) => {
-    if (!activePlanId) return [];
-    return weeklyPlanTopics
-      .filter(wpt => wpt.weekly_plan_id === activePlanId && wpt.weekday === weekday)
-      .map(wpt => {
-        const matchingCategory = categories.find(c => c.id === wpt.category_id);
-        const mappedCategory = matchingCategory ? {
-          ...matchingCategory,
-          color_id: matchingCategory.color || 'yellow'
-        } : undefined;
-        return {
-          wptId: wpt.id,
-          topicId: wpt.category_id,
-          topic: mappedCategory
-        };
-      })
-      .filter(item => item.topic !== undefined);
+  const handleOpenEditBlock = (block: AgendaBlock, e: React.MouseEvent) => {
+    e.stopPropagation();
+    sounds.playButtonSwitch();
+    setEditingBlock(block);
+    setBlockName(block.name);
+    setBlockDay(block.day_of_week);
+    setBlockStart(block.start_time);
+    setBlockEnd(block.end_time);
+    setBlockColor(block.color || 'blue');
+    setIsBlockModalOpen(true);
   };
+
+  const handleSaveBlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!blockName.trim()) return;
+
+    try {
+      sounds.playSuccessIndicator();
+      if (editingBlock) {
+        await db.updateAgendaBlock(editingBlock.id, {
+          name: blockName.trim(),
+          day_of_week: blockDay,
+          start_time: blockStart,
+          end_time: blockEnd,
+          color: blockColor
+        });
+      } else {
+        await db.saveAgendaBlock(blockDay, blockStart, blockEnd, blockName.trim(), blockColor);
+      }
+      setIsBlockModalOpen(false);
+      refreshData();
+    } catch (err) {
+      console.error("Save block error:", err);
+    }
+  };
+
+  const handleDeleteBlock = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Excluir este bloco removerá todas as pendências vinculadas a ele. Confirmar?")) {
+      return;
+    }
+    sounds.playAlarmBreak();
+    try {
+      await db.deleteAgendaBlock(id);
+      if (activeMicroBlock?.id === id) {
+        setActiveMicroBlock(null);
+      }
+      refreshData();
+    } catch (err) {
+      console.error("Delete block error:", err);
+    }
+  };
+
+  const handleOpenDuplicate = (blockId: string, day: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    sounds.playButtonSwitch();
+    setDuplicatingBlockId(blockId);
+    setDuplicateTargetDay(day);
+  };
+
+  const handleConfirmDuplicate = async () => {
+    if (!duplicatingBlockId) return;
+    try {
+      sounds.playSuccessIndicator();
+      await db.duplicateAgendaBlock(duplicatingBlockId, duplicateTargetDay);
+      setDuplicatingBlockId(null);
+      refreshData();
+    } catch (err) {
+      console.error("Duplicate block error:", err);
+    }
+  };
+
+  // ==========================================
+  // TODOS (PENDÊNCIAS) CRUD HANDLERS
+  // ==========================================
+  const handleAddTodo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeMicroBlock || !newTodoTitle.trim()) return;
+
+    try {
+      sounds.playButtonSwitch();
+      await db.saveAgendaTodo(
+        activeMicroBlock.id,
+        newTodoTitle.trim(),
+        selectedTodoGroupId || null,
+        selectedTodoCategoryId || null
+      );
+      setNewTodoTitle('');
+      setSelectedTodoGroupId('');
+      setSelectedTodoCategoryId('');
+      refreshData();
+    } catch (err) {
+      console.error("Add todo error:", err);
+    }
+  };
+
+  const handleToggleTodo = async (todo: AgendaTodo) => {
+    try {
+      sounds.playSuccessIndicator();
+      await db.updateAgendaTodo(todo.id, { completed: !todo.completed });
+      refreshData();
+    } catch (err) {
+      console.error("Toggle todo error:", err);
+    }
+  };
+
+  const handleStartEditTodo = (todo: AgendaTodo) => {
+    sounds.playButtonSwitch();
+    setEditingTodoId(todo.id);
+    setEditingTodoTitle(todo.title);
+  };
+
+  const handleSaveEditTodo = async (id: string) => {
+    if (!editingTodoTitle.trim()) return;
+    try {
+      sounds.playSuccessIndicator();
+      await db.updateAgendaTodo(id, { title: editingTodoTitle.trim() });
+      setEditingTodoId(null);
+      refreshData();
+    } catch (err) {
+      console.error("Save edit todo error:", err);
+    }
+  };
+
+  const handleDeleteTodo = async (id: string) => {
+    try {
+      sounds.playAlarmBreak();
+      await db.deleteAgendaTodo(id);
+      refreshData();
+    } catch (err) {
+      console.error("Delete todo error:", err);
+    }
+  };
+
+  // Helpers to resolve categories & groups
+  const groups = db.getGroups();
+  const availableCategories = categories;
 
   if (!isClient) return null;
 
   return (
-    <div className={`space-y-6 flex flex-col h-full animate-fade-in`}>
-      {/* HEADER BAR FOR SYSTEM NOTATION */}
+    <div className="space-y-6 flex flex-col h-full animate-fade-in pb-12 select-none">
+      
+      {/* 1. HUD TOP BAR (Aesthetic & Contextual) */}
       <div className={`border-2 p-5 rounded-xl ${borderStyle} ${bgHeader} flex flex-col md:flex-row justify-between items-center gap-4 relative overflow-hidden`}>
         <div className="flex items-center gap-3 relative z-10">
           <div className={`p-2.5 border rounded-lg ${
@@ -315,348 +304,573 @@ export default function WeeklyPlanningPage() {
             <Calendar className="w-6 h-6 animate-pulse" />
           </div>
           <div>
-            <h2 className="text-md md:text-lg font-black tracking-widest uppercase flex items-center gap-2">
-              [SISTEMA DE PLANO SEMANAL]
+            <h2 className={`text-md md:text-lg font-black tracking-widest uppercase flex items-center gap-2 ${headingStyle}`}>
+              [NÚCLEO CENTRAL: AGENDA DE EXECUÇÃO]
             </h2>
-            <p className="text-[11px] opacity-75 max-w-xl font-mono">
-              Foque no que realmente importa hoje. Agrupe sua semana em Assuntos/Áreas de foco
-              e reduza a troca excessiva de contexto diário.
+            <p className="text-[11px] opacity-75 max-w-2xl font-mono">
+              A agenda fixa e recorrente estipula <strong className={textStyle}>QUANDO</strong> os blocos ocorrem. As pendências internas determinam de forma mutável <strong className={textStyle}>O QUE</strong> será executado.
             </p>
           </div>
         </div>
+        <button
+          onClick={() => handleOpenAddBlock(0)}
+          className={primaryButtonStyle}
+        >
+          <Plus className="w-4 h-4" /> NOVO BLOCO
+        </button>
+      </div>
 
-        {/* CONTROLS AREA DATE CHANGER */}
-        <div className="flex flex-wrap items-center gap-2 relative z-10">
-          <button onClick={handlePrevWeek} className={buttonStyle} title="Semana Anterior">
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          
-          <div className={`border px-4 py-2 rounded text-xs text-center font-bold font-mono min-w-[200px] bg-black/40 ${
-            settings.theme_mode === 'AMBER' ? 'border-[#ffb347]/30 text-[#ffb347]' :
-            settings.theme_mode === 'GREEN' ? 'border-[#33ff33]/30 text-[#33ff33]' :
-            'border-[#00e5ff]/30 text-[#00e5ff]'
-          }`}>
-            {formatWeekRange()}
-          </div>
+      {/* 2. GOOGLE CALENDAR-STYLE WEEK MATRIX (VISÃO MACRO) */}
+      <div className={`border-2 p-4 rounded-xl ${borderStyle} bg-black/40 relative`}>
+        <div className="flex justify-between items-center border-b border-[var(--color-amber)]/20 pb-2 mb-4">
+          <h3 className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5 opacity-90">
+            <Layers className="w-4 h-4" /> CRONOGRAMA MACRO SEMANAL
+          </h3>
+          <span className="text-[9px] text-gray-500 font-mono">[ BLOCOS RECORRENTES SEM DATA ]</span>
+        </div>
 
-          <button onClick={handleNextWeek} className={buttonStyle} title="Próxima Semana">
-            <ArrowRight className="w-4 h-4" />
-          </button>
+        {/* 7 Columns Stack/Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-7 gap-3 items-start overflow-x-auto">
+          {WEEK_DAYS.map((day) => {
+            // Find blocks for this day_of_week and sort by start_time
+            const dayBlocks = agendaBlocks
+              .filter(b => b.day_of_week === day.value)
+              .sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-          <button onClick={handleResetToCurrentWeek} className={buttonStyle} title="Resetar para Hoje">
-            Hoje
-          </button>
+            const isCurrentWeekday = new Date().getDay() === (day.value === 6 ? 0 : day.value + 1);
+
+            return (
+              <div 
+                key={day.value}
+                className={`flex flex-col gap-3 min-w-[140px] p-2.5 rounded-lg border bg-black/25 transition-all relative ${
+                  isCurrentWeekday ? `${borderStyle} bg-emerald-950/5` : 'border-zinc-800 hover:border-zinc-700'
+                }`}
+              >
+                {/* Day title header */}
+                <div className="flex justify-between items-center border-b border-zinc-850 pb-1">
+                  <span className={`text-[10px] font-black tracking-wider uppercase ${isCurrentWeekday ? textStyle : 'text-zinc-300'}`}>
+                    {day.label}
+                  </span>
+                  <button 
+                    onClick={() => handleOpenAddBlock(day.value)}
+                    className="p-1 text-zinc-500 hover:text-white rounded border border-transparent hover:border-zinc-800 hover:bg-black/40 transition"
+                    title={`Adicionar bloco ao dia ${day.label}`}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {/* Day Blocks Listing */}
+                <div className="space-y-2.5 min-h-[180px]">
+                  {dayBlocks.length === 0 ? (
+                    <div className="h-full flex items-center justify-center py-10 opacity-40 text-center">
+                      <span className="text-[9px] italic font-mono text-zinc-500">Sem Blocos</span>
+                    </div>
+                  ) : (
+                    dayBlocks.map((block) => {
+                      const colorDef = CRT_COLOR_PRESETS.find(c => c.id === block.color) || CRT_COLOR_PRESETS[0];
+                      const subsetTodos = agendaTodos.filter(t => t.block_id === block.id);
+                      const doneTodos = subsetTodos.filter(t => t.completed).length;
+                      const activeTodos = subsetTodos.length - doneTodos;
+
+                      return (
+                        <div
+                          key={block.id}
+                          onClick={() => {
+                            sounds.playButtonSwitch();
+                            setActiveMicroBlock(block);
+                          }}
+                          className={`p-2 border rounded-md cursor-pointer transition relative overflow-hidden flex flex-col justify-between group ${
+                            colorDef.border
+                          } ${colorDef.bg} ${
+                            activeMicroBlock?.id === block.id ? 'ring-1 ring-white/50 border-white/60' : 'hover:scale-[1.02]'
+                          }`}
+                        >
+                          {/* Aesthetic side strip */}
+                          <div className={`absolute top-0 bottom-0 left-0 w-1 ${
+                            block.color === 'blue' ? 'bg-blue-500' :
+                            block.color === 'purple' ? 'bg-purple-500' :
+                            block.color === 'green' ? 'bg-green-500' :
+                            block.color === 'red' ? 'bg-red-500' :
+                            block.color === 'cyan' ? 'bg-cyan-500' :
+                            block.color === 'orange' ? 'bg-orange-500' :
+                            'bg-amber-500'
+                          }`} />
+
+                          <div className="pl-1.5 space-y-1">
+                            {/* Block Name */}
+                            <h4 className="text-[11px] font-black uppercase text-white truncate break-all block" title={block.name}>
+                              {block.name}
+                            </h4>
+
+                            {/* Interval */}
+                            <div className="flex items-center gap-1.5 text-[9px] text-zinc-400 font-mono">
+                              <Clock className="w-2.5 h-2.5 shrink-0" />
+                              <span>{block.start_time} - {block.end_time}</span>
+                            </div>
+
+                            {/* Todo Count Counters */}
+                            <div className="text-[9px] font-mono flex flex-wrap gap-1 leading-none pt-1">
+                              {subsetTodos.length > 0 ? (
+                                <>
+                                  <span className="text-zinc-400">Pnd:</span>
+                                  <span className={activeTodos > 0 ? 'text-amber-400 font-bold' : 'text-zinc-500'}>{activeTodos}</span>
+                                  <span className="text-zinc-600">/</span>
+                                  <span className="text-emerald-400">{doneTodos} ok</span>
+                                </>
+                              ) : (
+                                <span className="text-zinc-650 italic">[sem pendências]</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Block Actions on hover */}
+                          <div className="flex items-center justify-end gap-1 mt-2.5 pt-1.5 border-t border-white/5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => handleOpenDuplicate(block.id, block.day_of_week, e)}
+                              className="p-1 bg-black/40 border border-zinc-800 hover:border-zinc-600 rounded text-zinc-400 hover:text-white transition"
+                              title="Duplicar para outro dia"
+                            >
+                              <Copy className="w-2.5 h-2.5" />
+                            </button>
+                            <button
+                              onClick={(e) => handleOpenEditBlock(block, e)}
+                              className="p-1 bg-black/40 border border-zinc-800 hover:border-zinc-600 rounded text-zinc-400 hover:text-white transition"
+                              title="Editar Bloco"
+                            >
+                              <Edit3 className="w-2.5 h-2.5" />
+                            </button>
+                            <button
+                              onClick={(e) => handleDeleteBlock(block.id, e)}
+                              className="p-1 bg-black/40 border border-red-950/60 hover:bg-red-950/20 rounded text-zinc-400 hover:text-red-400 transition"
+                              title="Excluir Bloco"
+                            >
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* TWO COLUMNS WORKSPACE GRID */}
+      {/* 3. COOP VISÃO MICRO & DETAILS DRAWER FOR INTERNAL PENDÊNCIAS */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* LEFT COLUMN: TOPIC/FOCUS DICTIONARY (col-span-4) */}
-        <div className={`lg:col-span-4 border-2 p-4 rounded-xl ${borderStyle} bg-black/40 min-h-[500px] space-y-4`}>
-          <div className="flex justify-between items-center border-b border-[var(--color-amber)]/20 pb-2">
-            <h3 className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5 opacity-90">
-              <BookOpen className="w-4 h-4" /> Assuntos & Áreas
-            </h3>
-            {!isCreatingTopic && (
-              <button 
-                onClick={() => {
-                  sounds.playButtonSwitch();
-                  setIsCreatingTopic(true);
-                  setEditingTopic(null);
-                  setTopicForm({ name: '', description: '', color_id: 'yellow' });
-                }} 
-                className="px-2 py-1 text-2xs border border-[var(--color-amber)]/30 rounded text-[var(--color-amber)] hover:bg-[var(--color-amber)]/10 transition flex items-center gap-1"
-              >
-                <Plus className="w-3 h-3" /> NOVO
-              </button>
-            )}
-          </div>
-
-          {/* TOPIC CREATOR FORM OR TOPIC LISTING */}
-          {isCreatingTopic ? (
-            <form onSubmit={handleAddOrEditTopic} className="border border-[var(--color-amber)]/30 p-3.5 rounded bg-black/45 space-y-3 animate-fade-in">
-              <div className="flex justify-between items-center border-b border-[var(--color-amber)]/10 pb-1.5 mb-1">
-                <span className={`text-4xs font-bold font-mono tracking-widest ${textStyle}`}>
-                  {editingTopic ? 'EDITING_SUBJECT' : 'INITIALIZE_SUBJECT'}
-                </span>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    sounds.playButtonSwitch();
-                    setIsCreatingTopic(false);
-                    setEditingTopic(null);
-                  }}
-                  className="text-gray-400 hover:text-white transition"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Title input */}
-              <div className="space-y-1">
-                <label className="text-4xs block uppercase opacity-70">Título / Nome do Foco</label>
-                <input 
-                  type="text" 
-                  maxLength={50}
-                  className="w-full text-xs p-2 bg-black border border-[var(--color-amber)]/30 rounded focus:border-[var(--color-amber)] text-white focus:outline-none"
-                  placeholder="Ex: Mandarim, TVA, EFATAH..."
-                  value={topicForm.name}
-                  onChange={e => setTopicForm({ ...topicForm, name: e.target.value })}
-                  required
-                />
-              </div>
-
-              {/* Description input */}
-              <div className="space-y-1">
-                <label className="text-4xs block uppercase opacity-70">Descrição / Notas do Assunto</label>
-                <textarea 
-                  rows={2}
-                  maxLength={200}
-                  className="w-full text-xs p-2 bg-black border border-[var(--color-amber)]/30 rounded focus:border-[var(--color-amber)] text-white focus:outline-none resize-none"
-                  placeholder="O que este foco acarreta?"
-                  value={topicForm.description}
-                  onChange={e => setTopicForm({ ...topicForm, description: e.target.value })}
-                />
-              </div>
-
-              {/* Color selectors */}
-              <div className="space-y-1">
-                <label className="text-4xs block uppercase opacity-70">Sinalização de Cor CRT</label>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {PRESET_CRT_COLORS.map(color => (
-                    <button 
-                      type="button"
-                      key={color.id}
-                      onClick={() => {
-                        sounds.playButtonSwitch();
-                        setTopicForm({ ...topicForm, color_id: color.id });
-                      }}
-                      className={`w-6 h-6 rounded border transition-all flex items-center justify-center`}
-                      style={{ backgroundColor: color.hex + '15', borderColor: topicForm.color_id === color.id ? color.hex : color.hex + '30' }}
-                      title={color.label}
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: color.hex }} />
-                    </button>
-                  ))}
+        {/* LEFT COLUMN: ACTIVE BLOCK DETAIL VISÃO MICRO (col-span-8) */}
+        <div className={`lg:col-span-8 border-2 p-5 rounded-xl ${borderStyle} bg-black/40 space-y-4 min-h-[350px]`}>
+          {activeMicroBlock ? (
+            <div className="space-y-4">
+              
+              {/* Micro Context Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-zinc-800 pb-3 gap-2">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] px-2 py-0.5 font-bold uppercase rounded bg-zinc-800 border border-zinc-700 text-zinc-300">
+                      {WEEK_DAYS.find(w => w.value === activeMicroBlock.day_of_week)?.label}
+                    </span>
+                    <span className={`text-[10px] font-mono ${textStyle}`}>
+                      {activeMicroBlock.start_time} - {activeMicroBlock.end_time}
+                    </span>
+                  </div>
+                  <h3 className="text-md font-black uppercase tracking-wider flex items-center gap-2 text-white">
+                    {activeMicroBlock.name}
+                  </h3>
                 </div>
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button type="submit" disabled={isSubmitting} className={primaryButtonStyle}>
-                  {isSubmitting ? 'Salvando...' : 'Salvar'}
-                </button>
-                <button 
-                  type="button" 
-                  onClick={() => {
-                    sounds.playButtonSwitch();
-                    setIsCreatingTopic(false);
-                    setEditingTopic(null);
-                  }} 
-                  className={buttonStyle}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          ) : (
-            <div className="space-y-2.5 overflow-y-auto max-h-[600px] pr-1">
-              {topics.length === 0 ? (
-                <div className="border border-dashed border-gray-800 text-center py-10 rounded text-xs text-gray-500 space-y-3">
-                  <p>Nenhum assunto encontrado</p>
+                <div className="flex items-center gap-1.5 self-end sm:self-center">
                   <button
-                    onClick={() => {
-                      sounds.playButtonSwitch();
-                      setIsCreatingTopic(true);
-                      setEditingTopic(null);
-                      setTopicForm({ name: '', description: '', color_id: 'yellow' });
-                    }}
-                    className="px-4 py-1.5 border border-[var(--color-amber)] text-[var(--color-amber)] hover:bg-[var(--color-amber)]/10 text-3xs font-black uppercase rounded cursor-pointer"
+                    onClick={(e) => handleOpenEditBlock(activeMicroBlock, e)}
+                    className="p-1.5 border border-zinc-700 hover:border-zinc-500 rounded text-xs text-zinc-400 hover:text-white transition flex items-center gap-1 uppercase"
                   >
-                    [ Criar ]
+                    <Edit3 className="w-3.5 h-3.5" /> Ajustar Bloco
+                  </button>
+                  <button
+                    onClick={() => setActiveMicroBlock(null)}
+                    className="p-1.5 border border-zinc-700 hover:border-zinc-500 rounded text-xs text-zinc-400 hover:text-white transition"
+                    title="Fechar detalhe"
+                  >
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              ) : (
-                topics.map(topic => {
-                  const topicColor_ = PRESET_CRT_COLORS.find(c => c.id === topic.color_id) || PRESET_CRT_COLORS[4];
-                  const associatedTasks = getTasksForTopic(topic.id);
-                  const openTasks = associatedTasks.filter(t => !t.is_completed);
+              </div>
 
-                  return (
-                    <div 
-                      key={topic.id} 
-                      className={`border p-3 rounded-lg bg-[#0e0c0a]/60 hover:bg-[#1a1510]/55 transition relative overflow-hidden flex flex-col gap-1.5`}
-                      style={{ borderColor: topicColor_.hex + '25' }}
+              {/* CRUD FORM TO INPUT PENDÊNCIA (O que será feito) */}
+              <form onSubmit={handleAddTodo} className="p-3 border border-zinc-800 bg-zinc-950/45 rounded-lg space-y-2.5">
+                <span className="text-[9px] font-bold tracking-widest text-[#ffb347]/80 block uppercase">
+                  [ INSERIR PENDÊNCIA EXECUTÁVEL ]
+                </span>
+                
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    placeholder="O que será feito neste horário? Ex: Resolver lista 03, Fazer push corrido..."
+                    value={newTodoTitle}
+                    onChange={e => setNewTodoTitle(e.target.value)}
+                    className="flex-1 bg-black text-xs p-2.5 border border-zinc-800 rounded focus:border-[var(--color-amber)] text-white focus:outline-none"
+                  />
+                  
+                  <button type="submit" className={primaryButtonStyle}>
+                    <Plus className="w-4 h-4 shrink-0" /> ADICIONAR
+                  </button>
+                </div>
+
+                {/* Additional optional classification metadata fields (Grupo & Categoria) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <Folder className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <select
+                      value={selectedTodoGroupId}
+                      onChange={e => setSelectedTodoGroupId(e.target.value)}
+                      className="w-full bg-black border border-zinc-800 p-1.5 text-[10px] text-zinc-300 rounded cursor-pointer uppercase focus:border-[var(--color-amber)] focus:outline-none"
                     >
-                      {/* Left color bar */}
-                      <div className="absolute left-0 top-0 bottom-0 w-1" style={{ backgroundColor: topicColor_.hex }} />
-                      
-                      <div className="flex justify-between items-start pl-1">
-                        <div>
-                          <h4 className="text-xs font-black tracking-wide text-white uppercase flex items-center gap-1.5">
-                            {topic.name}
-                            {associatedTasks.length > 0 && (
-                              <span className="text-[9px] px-1 py-0.5 border rounded text-gray-400 bg-gray-900 border-gray-800" title="Tarefas associadas">
-                                {openTasks.length}/{associatedTasks.length} T
-                              </span>
-                            )}
-                          </h4>
-                          {topic.description && (
-                            <p className="text-[10px] text-gray-400 font-mono line-clamp-2 mt-0.5" title={topic.description}>
-                              {topic.description}
-                            </p>
-                          )}
-                        </div>
+                      <option value="">Sem Dossiê/Grupo (Opcional)</option>
+                      {groups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
 
-                        {/* Actions buttons */}
-                        <div className="flex gap-1">
-                          <button 
-                            onClick={() => handleStartEditTopic(topic)}
-                            className="p-1 border border-transparent hover:border-gray-800 hover:bg-gray-950 rounded text-gray-400 hover:text-white transition"
-                            title="Editar"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteTopic(topic.id)}
-                            className="p-1 border border-transparent hover:border-red-950 hover:bg-red-950/20 rounded text-gray-400 hover:text-red-400 transition"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
+                  <div className="flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                    <select
+                      value={selectedTodoCategoryId}
+                      onChange={e => setSelectedTodoCategoryId(e.target.value)}
+                      className="w-full bg-black border border-zinc-800 p-1.5 text-[10px] text-zinc-300 rounded cursor-pointer uppercase focus:border-[var(--color-amber)] focus:outline-none"
+                    >
+                      <option value="">Sem Categoria (Opcional)</option>
+                      {availableCategories
+                        .filter(c => !selectedTodoGroupId || c.group_id === selectedTodoGroupId)
+                        .map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+              </form>
+
+              {/* LIST OF PENDÊNCIAS */}
+              <div className="space-y-2 pt-2">
+                <span className="text-[10px] font-black tracking-widest text-zinc-500 block uppercase">
+                  PENDÊNCIAS CADASTRADAS ({agendaTodos.filter(t => t.block_id === activeMicroBlock.id).length}):
+                </span>
+
+                <div className="space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
+                  {agendaTodos.filter(t => t.block_id === activeMicroBlock.id).length === 0 ? (
+                    <div className="text-center py-8 border border-dashed border-zinc-900 rounded text-xs text-zinc-500 font-mono">
+                      Este bloco de horário está livre de pendências. Insira uma acima para planejar seu momento.
                     </div>
-                  );
-                })
-              )}
+                  ) : (
+                    agendaTodos
+                      .filter(t => t.block_id === activeMicroBlock.id)
+                      .map((todo) => {
+                        const isEditing = editingTodoId === todo.id;
+                        const relatedGroup = groups.find(g => g.id === todo.group_id);
+                        const relatedCat = availableCategories.find(c => c.id === todo.category_id);
+
+                        return (
+                          <div 
+                            key={todo.id}
+                            className={`p-2.5 rounded border border-zinc-850 bg-zinc-950/70 hover:bg-zinc-900/60 transition flex items-center justify-between gap-3 ${
+                              todo.completed ? 'opacity-60' : ''
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <button 
+                                type="button"
+                                onClick={() => handleToggleTodo(todo)}
+                                className={`shrink-0 transition-colors ${
+                                  todo.completed ? 'text-emerald-400' : 'text-zinc-650 hover:text-zinc-100'
+                                }`}
+                              >
+                                {todo.completed ? (
+                                  <CheckSquare className="w-4 h-4" />
+                                ) : (
+                                  <Square className="w-4 h-4" />
+                                )}
+                              </button>
+
+                              {isEditing ? (
+                                <div className="flex items-center gap-1.5 flex-1">
+                                  <input 
+                                    type="text"
+                                    value={editingTodoTitle}
+                                    onChange={e => setEditingTodoTitle(e.target.value)}
+                                    className="flex-1 bg-black text-xs p-1.5 border border-[var(--color-amber)] rounded focus:outline-none text-white font-mono"
+                                  />
+                                  <button
+                                    onClick={() => handleSaveEditTodo(todo.id)}
+                                    className="px-2 py-1 bg-emerald-500 text-black rounded font-black uppercase text-4xs"
+                                  >
+                                    OK
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingTodoId(null)}
+                                    className="px-2 py-1 bg-zinc-800 rounded font-black uppercase text-4xs text-zinc-300"
+                                  >
+                                    X
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <span className={`text-xs font-mono break-words block ${
+                                    todo.completed ? 'line-through text-zinc-500' : 'text-zinc-100'
+                                  }`}>
+                                    {todo.title}
+                                  </span>
+
+                                  {/* Classification tags as metadata */}
+                                  {(relatedGroup || relatedCat) && (
+                                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                      {relatedGroup && (
+                                        <span className="text-[8px] px-1.5 border border-zinc-800 rounded bg-zinc-900/60 text-zinc-400">
+                                          G: {relatedGroup.name}
+                                        </span>
+                                      )}
+                                      {relatedCat && (
+                                        <span className="text-[8px] px-1.5 border border-zinc-800 rounded bg-zinc-900/60 text-zinc-400">
+                                          C: {relatedCat.name}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Options Buttons */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => handleStartEditTodo(todo)}
+                                className="p-1 hover:bg-black/40 rounded border border-transparent hover:border-zinc-800 text-zinc-400 hover:text-white transition"
+                                title="Editar título"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleDeleteTodo(todo.id)}
+                                className="p-1 hover:bg-red-950/20 rounded border border-transparent hover:border-red-900/40 text-zinc-400 hover:text-red-400 transition"
+                                title="Remover pendência"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center py-16 text-zinc-500 space-y-3">
+              <Sparkles className="w-8 h-8 opacity-45 animate-pulse" />
+              <div className="space-y-1">
+                <p className="text-xs font-bold uppercase tracking-widest text-zinc-300">Nenhum Bloco Selecionado</p>
+                <p className="text-[11px] max-w-sm">
+                  Clique em qualquer bloco de horário no cronograma semanal acima (Visão Macro) para inspecionar, adensar e gerenciar suas pendências de execução (Visão Micro).
+                </p>
+              </div>
             </div>
           )}
         </div>
 
-        {/* RIGHT COLUMN: 7-DAY AGENDA GRID (col-span-8) */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex justify-between items-center border-b border-[var(--color-amber)]/20 pb-2">
-            <h3 className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5 opacity-90">
-              <Calendar className="w-4 h-4" /> Distribuição da Semana
-            </h3>
-            <span className="text-4xs uppercase text-gray-500 font-mono">
-              [ {WEEK_DAYS.length} DATAPOINTS PROGRAMMED ]
-            </span>
-          </div>
+        {/* RIGHT COLUMN: FAST EXPLANATION NOTES (col-span-4) */}
+        <div className={`lg:col-span-4 border-2 p-5 rounded-xl ${borderStyle} bg-black/40 space-y-4`}>
+          <h3 className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5 opacity-90">
+            <SettingsIcon className="w-4 h-4 text-orange-400 shrink-0" /> REGRAS DO SISTEMA
+          </h3>
 
-          {/* Agenda Grid layout - we can layout in standard row format or a clean list columns layout */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {WEEK_DAYS.map(day => {
-              const daySubjects = getDayTopicsForPlan(day.value);
-              const isToday = new Date().getDay() === day.value;
+          <div className="space-y-3 text-[11px] font-mono leading-relaxed text-zinc-400">
+            <div className="p-3 border border-zinc-800 bg-zinc-950/30 rounded">
+              <strong className={textStyle}>1. ESTRUTURA PERMANENTE:</strong>
+              <p className="mt-1">
+                Ao contrário da agenda comum de datas, os blocos criados aqui são fixos e recorrentes todas as semanas. Eles representam sua fiação estrutural permanente de tempo.
+              </p>
+            </div>
 
-              return (
-                <div 
-                  key={day.value}
-                  className={`border-2 rounded-xl p-3.5 bg-black/45 relative flex flex-col gap-3 min-h-[160px] select-none transition-all ${
-                    isToday ? `${borderStyle} shadow-[0_0_12px_rgba(255,179,71,0.15)]` : 'border-[var(--color-amber)]/15 hover:border-[var(--color-amber)]/40'
-                  }`}
-                >
-                  {/* Header info */}
-                  <div className="flex justify-between items-center border-b border-[var(--color-amber)]/10 pb-1.5">
-                    <span className="text-2xs font-extrabold tracking-widest text-white uppercase flex items-center gap-1">
-                      {isToday && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping inline-block" />}
-                      {day.label}
-                    </span>
-                    <span className="text-[10px] text-gray-500 font-bold tracking-wider">{day.short}</span>
-                  </div>
+            <div className="p-3 border border-zinc-800 bg-zinc-950/30 rounded">
+              <strong className={textStyle}>2. MUTABILIDADE DE PENDÊNCIAS:</strong>
+              <p className="mt-1">
+                O que você faz dentro de cada bloco de horário (as pendências) são variáveis e dinâmicas. Você pode completá-las, criá-las ou limpá-las à medida que conclui suas frentes.
+              </p>
+            </div>
 
-                  {/* Programmed subjects in day content */}
-                  <div className="flex-1 space-y-1.5">
-                    {daySubjects.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center p-4 border border-dashed border-gray-900 rounded-lg text-center h-[70px]">
-                        <span className="text-[10px] text-gray-500 italic">Livre de Foco</span>
-                      </div>
-                    ) : (
-                      daySubjects.map(item => {
-                        const topicColor = PRESET_CRT_COLORS.find(c => c.id === item.topic!.color_id) || PRESET_CRT_COLORS[4];
-                        const openAssociated = getTasksForTopic(item.topicId).filter(t => !t.is_completed).length;
-
-                        return (
-                          <div 
-                            key={item.wptId}
-                            className="border p-2 rounded flex justify-between items-center bg-[#0d0b09]/80 text-xxs transition overflow-hidden relative group"
-                            style={{ borderColor: topicColor.hex + '25' }}
-                          >
-                            <div className="absolute left-0 top-0 bottom-0 w-0.5" style={{ backgroundColor: topicColor.hex }} />
-                            <div className="flex items-center gap-2 pl-1 max-w-[80%]">
-                              <span className="font-extrabold text-white uppercase truncate" title={item.topic!.name}>
-                                {item.topic!.name}
-                              </span>
-                              {openAssociated > 0 && (
-                                <span className="text-3xs text-rose-400 px-1 border border-rose-950/40 rounded bg-rose-950/20 font-bold shrink-0">
-                                  {openAssociated} T
-                                </span>
-                              )}
-                            </div>
-                            <button 
-                              onClick={() => handleUnscheduleTopic(item.topicId, day.value)}
-                              className="text-gray-500 hover:text-red-400 transition p-0.5 group-hover:opacity-100 opacity-60"
-                              title="Remover foco do dia"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-
-                  {/* Add action */}
-                  <div className="pt-1.5 border-t border-[var(--color-amber)]/5 flex justify-end">
-                    {schedulingDay === day.value ? (
-                      <div className="w-full space-y-1.5 animate-fade-in">
-                        <div className="flex justify-between items-center text-3xs text-gray-400 border-b border-gray-900 pb-1">
-                          <span>SELECIONE O FOCO:</span>
-                          <button onClick={() => setSchedulingDay(null)} className="text-gray-400 hover:text-white">
-                            <X className="w-2.5 h-2.5" />
-                          </button>
-                        </div>
-                        {topics.filter(tp => !daySubjects.some(ds => ds.topicId === tp.id)).length === 0 ? (
-                          <div className="text-[10px] text-gray-500 italic py-1 text-center">
-                            Nenhum assunto sobressalente
-                          </div>
-                        ) : (
-                          <div className="max-h-[110px] overflow-y-auto space-y-1 pr-1 border border-gray-900 p-1 rounded bg-black/60">
-                            {topics
-                              .filter(tp => !daySubjects.some(ds => ds.topicId === tp.id))
-                              .map(tp => (
-                                <button
-                                  key={tp.id}
-                                  onClick={() => handleAssignTopicToDay(tp.id, day.value)}
-                                  className="w-full text-left p-1 rounded hover:bg-[var(--color-amber)]/10 text-3xs uppercase font-extrabold text-[var(--color-amber)] transition truncate"
-                                >
-                                  + {tp.name}
-                                </button>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <button 
-                        onClick={() => {
-                          sounds.playButtonSwitch();
-                          setSchedulingDay(day.value);
-                        }}
-                        className="py-1 px-2 text-3xs border border-[var(--color-amber)]/20 rounded hover:border-[var(--color-amber)]/60 text-[var(--color-amber)]/80 hover:text-[var(--color-amber)] transition font-bold flex items-center gap-1"
-                      >
-                        <Plus className="w-2.5 h-2.5" /> FOCO
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            <div className="p-3 border border-zinc-800 bg-zinc-950/30 rounded">
+              <strong className={textStyle}>3. GRUPOS COMO METADADOS:</strong>
+              <p className="mt-1">
+                Mantenha a hierarquia dominante de <strong className="text-white">Agenda → Bloco → Pendências</strong>. Seus grupos e categorias de projetos agora funcionam apenas de forma acessória para classificar o teor de suas frentes.
+              </p>
+            </div>
           </div>
         </div>
-
       </div>
+
+      {/* 4. DUPLICATE BLOCK DIALOG MODAL */}
+      {duplicatingBlockId && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className={`w-full max-w-md border-2 rounded-xl p-5 ${borderStyle} bg-black text-white space-y-4`}>
+            
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+              <span className={`text-xs font-black tracking-widest uppercase ${textStyle}`}>
+                [ DUPLICAR BLOCO DE AGENDA ]
+              </span>
+              <button 
+                onClick={() => setDuplicatingBlockId(null)}
+                className="text-zinc-500 hover:text-white transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-[11px] text-zinc-400 leading-relaxed font-mono">
+                Selecione para qual dia da semana você gostaria de enviar uma réplica exata deste bloco, juntamente com todas as suas pendências internas cadastradas:
+              </p>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1">Dia da Semana Alvo</label>
+                <select
+                  value={duplicateTargetDay}
+                  onChange={e => setDuplicateTargetDay(Number(e.target.value))}
+                  className="w-full bg-black border border-zinc-800 p-2 text-xs rounded text-white focus:outline-none focus:border-[var(--color-amber)]"
+                >
+                  {WEEK_DAYS.map(day => (
+                    <option key={day.value} value={day.value}>{day.label}-feira</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-2">
+              <button onClick={handleConfirmDuplicate} className={primaryButtonStyle}>
+                CONFIRMAR CÓPIA
+              </button>
+              <button onClick={() => setDuplicatingBlockId(null)} className={buttonStyle}>
+                CANCELAR
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* 5. ADD / EDIT BLOCK FORM DIALOG MODAL */}
+      {isBlockModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <form 
+            onSubmit={handleSaveBlock} 
+            className={`w-full max-w-md border-2 rounded-xl p-5 ${borderStyle} bg-black text-white space-y-4`}
+          >
+            
+            <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+              <span className={`text-xs font-black tracking-widest uppercase ${textStyle}`}>
+                {editingBlock ? '[ MODIFICAR BLOCO DE AGENDA ]' : '[ ATIVAR NOVO BLOCO DE AGENDA ]'}
+              </span>
+              <button 
+                type="button"
+                onClick={() => setIsBlockModalOpen(false)}
+                className="text-zinc-500 hover:text-white transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Name */}
+              <div>
+                <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1">Título do Bloco</label>
+                <input
+                  type="text"
+                  required
+                  maxLength={50}
+                  placeholder="Ex: Aula de Biologia, Estudo de Francês..."
+                  value={blockName}
+                  onChange={e => setBlockName(e.target.value)}
+                  className="w-full bg-black border border-zinc-800 p-2.5 text-xs text-white focus:outline-none focus:border-[var(--color-amber)] rounded"
+                />
+              </div>
+
+              {/* Day details */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1">Dia da Semana</label>
+                  <select
+                    value={blockDay}
+                    onChange={e => setBlockDay(Number(e.target.value))}
+                    className="w-full bg-black border border-zinc-800 p-2.5 text-xs rounded text-white focus:outline-none focus:border-[var(--color-amber)]"
+                  >
+                    {WEEK_DAYS.map(day => (
+                      <option key={day.value} value={day.value}>{day.label}-feira</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1">Cor CRT Sinalizadora</label>
+                  <select
+                    value={blockColor}
+                    onChange={e => setBlockColor(e.target.value)}
+                    className="w-full bg-black border border-zinc-800 p-2.5 text-xs rounded text-white focus:outline-none focus:border-[var(--color-amber)] uppercase"
+                  >
+                    {CRT_COLOR_PRESETS.map(preset => (
+                      <option key={preset.id} value={preset.id}>{preset.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Times intervals */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1">Horário de Início</label>
+                  <input
+                    type="time"
+                    required
+                    value={blockStart}
+                    onChange={e => setBlockStart(e.target.value)}
+                    className="w-full bg-black border border-zinc-800 p-2.5 text-xs text-white focus:outline-none focus:border-[var(--color-amber)] rounded"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 block mb-1">Horário de Término</label>
+                  <input
+                    type="time"
+                    required
+                    value={blockEnd}
+                    onChange={e => setBlockEnd(e.target.value)}
+                    className="w-full bg-black border border-zinc-800 p-2.5 text-xs text-white focus:outline-none focus:border-[var(--color-amber)] rounded"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2 justify-end pt-3 border-t border-zinc-800">
+              <button type="submit" className={primaryButtonStyle}>
+                GRAVAR BLOCO
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setIsBlockModalOpen(false)} 
+                className={buttonStyle}
+              >
+                CANCELAR
+              </button>
+            </div>
+
+          </form>
+        </div>
+      )}
+
     </div>
   );
 }

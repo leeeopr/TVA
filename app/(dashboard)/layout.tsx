@@ -45,8 +45,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [globalSaving, setGlobalSaving] = useState(false);
 
+  // Contextual Agenda Todo Modal states
+  const [agendaModalOpen, setAgendaModalOpen] = useState(false);
+  const [agendaSelectDay, setAgendaSelectDay] = useState<number>(0);
+  const [agendaSelectBlockId, setAgendaSelectBlockId] = useState<string>('');
+  const [agendaTodoTitle, setAgendaTodoTitle] = useState<string>('');
+  const [agendaGroupId, setAgendaGroupId] = useState<string>('');
+  const [agendaCategoryId, setAgendaCategoryId] = useState<string>('');
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [agendaSaving, setAgendaSaving] = useState(false);
+
   const availableCategories = useProductivityStore(s => s.categories);
   const availablePeriods = useProductivityStore(s => s.periods);
+  const agendaBlocks = useProductivityStore(s => s.agendaBlocks);
   const groupsList = db.getGroups();
 
   const handleOpenGlobalModal = () => {
@@ -67,18 +78,62 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setGlobalModalOpen(true);
   };
 
+  const handleOpenAgendaModal = () => {
+    sounds.playButtonSwitch();
+    // Default to current weekday (0-6)
+    const todayNum = new Date().getDay();
+    const currentDayOfWeek = todayNum === 0 ? 6 : todayNum - 1;
+    setAgendaSelectDay(currentDayOfWeek);
+
+    const currentGroups = db.getGroups();
+    if (currentGroups.length > 0) {
+      setAgendaGroupId(currentGroups[0].id);
+    } else {
+      setAgendaGroupId('');
+    }
+    setAgendaTodoTitle('');
+    setAgendaCategoryId('');
+    setAgendaError(null);
+    setAgendaSaving(false);
+
+    // Initial pre-selection of block for the selected day
+    const dayBlocks = agendaBlocks.filter(b => b.day_of_week === currentDayOfWeek);
+    if (dayBlocks.length > 0) {
+      setAgendaSelectBlockId(dayBlocks[0].id);
+    } else {
+      setAgendaSelectBlockId('');
+    }
+
+    setAgendaModalOpen(true);
+  };
+
+  // Sync block pre-selection when selected day changes
+  useEffect(() => {
+    if (agendaModalOpen) {
+      const dayBlocks = agendaBlocks.filter(b => b.day_of_week === agendaSelectDay);
+      setTimeout(() => {
+        if (dayBlocks.length > 0) {
+          setAgendaSelectBlockId(dayBlocks[0].id);
+        } else {
+          setAgendaSelectBlockId('');
+        }
+      }, 0);
+    }
+  }, [agendaSelectDay, agendaBlocks, agendaModalOpen]);
+
   // Escape key close listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setGlobalModalOpen(false);
+        setAgendaModalOpen(false);
       }
     };
-    if (globalModalOpen) {
+    if (globalModalOpen || agendaModalOpen) {
       window.addEventListener('keydown', handleKeyDown);
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [globalModalOpen]);
+  }, [globalModalOpen, agendaModalOpen]);
 
   const handleGlobalCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,6 +181,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       sounds.playAlarmBreak();
     } finally {
       setGlobalSaving(false);
+    }
+  };
+
+  const handleAgendaCreateTodo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agendaTodoTitle.trim()) return;
+    if (!agendaSelectBlockId) {
+      setAgendaError("Nenhum bloco de horários selecionado. Crie um bloco primeiro na aba Agenda Semanal.");
+      sounds.playAlarmBreak();
+      return;
+    }
+
+    try {
+      setAgendaSaving(true);
+      setAgendaError(null);
+
+      // Save directly via the raw db layer (inserts to Supabase as requested)
+      await db.saveAgendaTodo(
+        agendaSelectBlockId,
+        agendaTodoTitle.trim(),
+        agendaGroupId || null,
+        agendaCategoryId || null
+      );
+
+      // Force instant store synchronized state update immediately
+      refreshData();
+
+      db.addLog(`GLOBAL_CONTEXTUAL_CAPTURE: AGENDA EVENT '${agendaTodoTitle.slice(0, 15)}...' CREATED & ASSOCIATED TO BLOCK.`, 'success');
+      sounds.playSuccessIndicator();
+
+      // Close modal
+      setAgendaModalOpen(false);
+    } catch (err: any) {
+      console.error("Critical agenda todo write exception:", err);
+      setAgendaError(err.message || 'Erro de conexão ao salvar pendência no Supabase.');
+      sounds.playAlarmBreak();
+    } finally {
+      setAgendaSaving(false);
     }
   };
 
@@ -389,7 +482,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               <span className="flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
-                Foco Semanal
+                Agenda Semanal
               </span>
               <span className="hidden lg:inline text-[9px] opacity-70">[F5]</span>
             </Link>
@@ -437,7 +530,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* FLOATING ACTION BUTTON (FAB) FOR CENTRAL TASK CAPTURE */}
       <button
-        onClick={handleOpenGlobalModal}
+        onClick={pathname === '/weekly-planning' ? handleOpenAgendaModal : handleOpenGlobalModal}
         className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-14 h-14 rounded-full border-2 bg-black hover:scale-110 active:scale-95 flex items-center justify-center cursor-pointer transition-all duration-300 shadow-xl ${
           settings.theme_mode === 'AMBER' 
             ? 'border-[#ffb347] text-[#ffb347] hover:bg-[#ffb347]/10 hover:shadow-[#ffb347]/20 amber-glow-border shadow-[0_0_15px_rgba(255,179,71,0.25)]' 
@@ -445,7 +538,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               ? 'border-[#33ff33] text-[#33ff33] hover:bg-[#33ff33]/10 hover:shadow-[#33ff33]/20 green-glow-border shadow-[0_0_15px_rgba(51,255,51,0.25)]'
               : 'border-[#00e5ff] text-[#00e5ff] hover:bg-[#00e5ff]/10 hover:shadow-[#00e5ff]/20 cobalt-glow-border shadow-[0_0_15px_rgba(0,229,255,0.25)]'
         }`}
-        title="Formulário Rápido de Tarefa"
+        title={pathname === '/weekly-planning' ? "Adicionar Pendência à Agenda" : "Formulário Rápido de Tarefa"}
       >
         <Plus className="w-8 h-8 animate-pulse" />
       </button>
@@ -642,6 +735,218 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               </form>
 
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* CONTEXTUAL AGENDA TODO CREATION MODAL */}
+      <AnimatePresence>
+        {agendaModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className={`w-full max-w-lg bg-black border-2 rounded ${
+                settings.theme_mode === 'AMBER' 
+                  ? 'border-[#ffb347] shadow-[0_0_25px_rgba(255,179,71,0.15)]' 
+                  : settings.theme_mode === 'GREEN' 
+                    ? 'border-[#33ff33] shadow-[0_0_25px_rgba(51,255,51,0.15)]'
+                    : 'border-[#00e5ff] shadow-[0_0_25px_rgba(0,229,255,0.15)]'
+              } p-6 overflow-y-auto max-h-[90vh]`}
+            >
+              {/* MODAL HEADER */}
+              <div className="flex items-start justify-between pb-4 mb-4 border-b border-white/10">
+                <div>
+                  <h3 className={`text-base font-black tracking-widest uppercase flex items-center gap-2 ${
+                    settings.theme_mode === 'AMBER' 
+                      ? 'text-[#ffb347]' 
+                      : settings.theme_mode === 'GREEN' 
+                        ? 'text-[#33ff33]'
+                        : 'text-[#00e5ff]'
+                  }`}>
+                    <Calendar className="w-5 h-5 animate-pulse" />
+                    AGENDAR NOVA PENDÊNCIA
+                  </h3>
+                  <p className="text-[10px] text-white/50 font-mono tracking-wider mt-1 uppercase">
+                    Mecanismo de captura contextual da Agenda Semanal
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { sounds.playButtonSwitch(); setAgendaModalOpen(false); }}
+                  className="text-white/40 hover:text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* MODAL FORM */}
+              <form onSubmit={handleAgendaCreateTodo} className="space-y-4 font-mono">
+                {agendaError && (
+                  <div className="p-3 border border-red-500/40 bg-red-500/10 text-red-400 text-xs rounded flex items-center gap-2 uppercase tracking-wide">
+                    <AlertOctagon className="w-4 h-4 shrink-0" />
+                    <span>{agendaError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  {/* STEP 1: SELECT DAY OF WEEK */}
+                  <div>
+                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-2 font-bold flex items-center gap-1">
+                      <span>PASSO 1: SELECIONAR DIA DA SEMANA</span>
+                    </label>
+                    <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+                      {[
+                        { label: 'SEG', labelFull: 'Segunda-feira', value: 0 },
+                        { label: 'TER', labelFull: 'Terça-feira', value: 1 },
+                        { label: 'QUA', labelFull: 'Quarta-feira', value: 2 },
+                        { label: 'QUI', labelFull: 'Quinta-feira', value: 3 },
+                        { label: 'SEX', labelFull: 'Sexta-feira', value: 4 },
+                        { label: 'SÁB', labelFull: 'Sábado', value: 5 },
+                        { label: 'DOM', labelFull: 'Domingo', value: 6 },
+                      ].map((day) => {
+                        const isSelected = agendaSelectDay === day.value;
+                        return (
+                          <button
+                            key={day.value}
+                            type="button"
+                            onClick={() => { sounds.playButtonSwitch(); setAgendaSelectDay(day.value); }}
+                            className={`py-2 px-1 text-center text-xs rounded uppercase border transition-all cursor-pointer font-bold ${
+                              isSelected
+                                ? settings.theme_mode === 'AMBER'
+                                  ? 'bg-[#ffb347] border-[#ffb347] text-black font-black'
+                                  : settings.theme_mode === 'GREEN'
+                                    ? 'bg-[#33ff33] border-[#33ff33] text-black font-black'
+                                    : 'bg-[#00e5ff] border-[#00e5ff] text-black font-black'
+                                : 'bg-transparent border-white/10 hover:border-white/30 text-white'
+                            }`}
+                            title={day.labelFull}
+                          >
+                            {day.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* STEP 2: SELECT AGENDA BLOCK */}
+                  <div>
+                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">
+                      PASSO 2: FILTRAR & SELECIONAR BLOCO DE HORÁRIO
+                    </label>
+                    {agendaBlocks.filter(b => b.day_of_week === agendaSelectDay).length === 0 ? (
+                      <div className="p-3 border border-yellow-500/35 bg-yellow-500/5 text-yellow-400 text-xs rounded uppercase text-center tracking-wider">
+                        [NENHUM BLOCO ENCONTRADO PARA ESTE DIA]
+                        <p className="text-[9px] text-white/40 mt-1 uppercase font-normal">
+                          Crie um bloco de horário para este dia na aba Agenda Semanal primeiro.
+                        </p>
+                      </div>
+                    ) : (
+                      <select
+                        value={agendaSelectBlockId}
+                        onChange={(e) => { sounds.playButtonSwitch(); setAgendaSelectBlockId(e.target.value); }}
+                        className="w-full bg-black border border-white/25 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase font-sans"
+                        disabled={agendaSaving}
+                        required
+                      >
+                        {agendaBlocks
+                          .filter(b => b.day_of_week === agendaSelectDay)
+                          .map(b => (
+                            <option key={b.id} value={b.id}>
+                              ({b.start_time} - {b.end_time}) // {b.name}
+                            </option>
+                          ))
+                        }
+                      </select>
+                    )}
+                  </div>
+
+                  {/* STEP 3: INFOMAR A PENDÊNCIA */}
+                  <div>
+                    <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">
+                      PASSO 3: INFORMAR DETALHES DA PENDÊNCIA / TAREFA
+                    </label>
+                    <input
+                      type="text"
+                      value={agendaTodoTitle}
+                      onChange={(e) => setAgendaTodoTitle(e.target.value)}
+                      placeholder="Ex: RESOLVER LISTA DE EXERCÍCIOS DE GENÉTICA..."
+                      className="w-full bg-black border border-white/25 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded uppercase placeholder-white/30"
+                      disabled={agendaSaving}
+                      maxLength={100}
+                      required
+                    />
+                  </div>
+
+                  {/* OPTIONALS: GROUP & CATEGORY CLASSIFICER */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">DOSSIÊ / GRUPO (OPCIONAL)</label>
+                      <select
+                        value={agendaGroupId}
+                        onChange={(e) => { sounds.playButtonSwitch(); setAgendaGroupId(e.target.value); setAgendaCategoryId(''); }}
+                        className="w-full bg-black border border-white/25 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
+                        disabled={agendaSaving}
+                      >
+                        <option value="">Sem Grupo</option>
+                        {groupsList.map(g => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] text-white/70 uppercase tracking-widest mb-1.5 font-bold">CATEGORIA (OPCIONAL)</label>
+                      <select
+                        value={agendaCategoryId}
+                        onChange={(e) => { sounds.playButtonSwitch(); setAgendaCategoryId(e.target.value); }}
+                        className="w-full bg-black border border-white/25 p-2.5 text-xs text-white focus:border-[var(--color-amber)] focus:outline-none rounded cursor-pointer uppercase"
+                        disabled={agendaSaving || !agendaGroupId}
+                      >
+                        <option value="">Sem Categoria</option>
+                        {availableCategories
+                          .filter(c => c.group_id === agendaGroupId)
+                          .map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* MODAL ACTIONS */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => { sounds.playButtonSwitch(); setAgendaModalOpen(false); }}
+                    className="px-4 py-2 bg-transparent hover:bg-white/5 border border-white/20 hover:border-white/40 text-white font-mono text-xs uppercase tracking-widest rounded transition-all cursor-pointer"
+                    disabled={agendaSaving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className={`px-5 py-2 font-mono text-xs uppercase tracking-widest rounded flex items-center gap-2 font-black transition-all cursor-pointer transition-colors ${
+                      settings.theme_mode === 'AMBER' 
+                        ? 'bg-[#ffb347] text-black hover:bg-[#ffb347]/80' 
+                        : settings.theme_mode === 'GREEN' 
+                          ? 'bg-[#33ff33] text-black hover:bg-[#33ff33]/80'
+                          : 'bg-[#00e5ff] text-black hover:bg-[#00e5ff]/80'
+                    }`}
+                    disabled={agendaSaving || !agendaSelectBlockId || !agendaTodoTitle.trim()}
+                  >
+                    {agendaSaving ? 'GERANDO...' : 'Agendar'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}
