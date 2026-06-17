@@ -672,56 +672,167 @@ export default function DashboardPage() {
         <div className={`border-2 p-5 rounded-xl ${borderStyle} bg-black/40 flex flex-col justify-between min-h-[180px] relative overflow-hidden transition-all duration-300`}>
           <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-zinc-100" />
           
-          <div className="pl-2 space-y-2 text-left">
-            <span className="text-[9px] font-black tracking-widest text-zinc-400 block uppercase">
-              • PRESENT MOMENT / CURRENT TIME-BLOCK
-            </span>
+          <div className="pl-2 space-y-4 text-left">
+            <div>
+              <span className="text-[9px] font-black tracking-widest text-zinc-400 block uppercase mb-1">
+                • PRESENT MOMENT / CURRENT TIME-BLOCK
+              </span>
 
-            {activeBlock ? (
-              <div className="space-y-2">
-                <div className="space-y-1">
-                  <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-white">
-                    {activeBlock.name}
-                  </h2>
-                  <div className="flex items-center gap-2 font-mono text-xs">
-                    <span className={`px-2 py-0.5 font-bold uppercase rounded border ${
-                      activeBlock.color === 'blue' ? 'border-blue-500/35 bg-blue-500/10 text-blue-400' :
-                      activeBlock.color === 'purple' ? 'border-purple-500/35 bg-purple-500/10 text-purple-400' :
-                      activeBlock.color === 'green' ? 'border-green-500/35 bg-green-500/10 text-emerald-400' :
-                      activeBlock.color === 'red' ? 'border-red-500/35 bg-red-500/10 text-red-400' :
-                      activeBlock.color === 'cyan' ? 'border-cyan-500/35 bg-cyan-500/10 text-cyan-400' :
-                      activeBlock.color === 'orange' ? 'border-orange-500/35 bg-orange-500/10 text-orange-400' :
-                      'border-amber-500/35 bg-amber-500/10 text-amber-500'
-                    }`}>
-                      {activeBlock.color?.toUpperCase() || 'PADRÃO'}
-                    </span>
-                    <span className="text-zinc-300">{activeBlock.start_time} até {activeBlock.end_time}</span>
+              {activeBlock ? (
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-white">
+                      {activeBlock.name}
+                    </h2>
+                    <div className="flex items-center gap-2 font-mono text-xs">
+                      <span className={`px-2 py-0.5 font-bold uppercase rounded border ${
+                        activeBlock.color === 'blue' ? 'border-blue-500/35 bg-blue-500/10 text-blue-400' :
+                        activeBlock.color === 'purple' ? 'border-purple-500/35 bg-purple-500/10 text-purple-400' :
+                        activeBlock.color === 'green' ? 'border-green-500/35 bg-green-500/10 text-emerald-400' :
+                        activeBlock.color === 'red' ? 'border-red-500/35 bg-red-500/10 text-red-400' :
+                        activeBlock.color === 'cyan' ? 'border-cyan-500/35 bg-cyan-500/10 text-cyan-400' :
+                        activeBlock.color === 'orange' ? 'border-orange-500/35 bg-orange-500/10 text-orange-400' :
+                        'border-amber-500/35 bg-amber-500/10 text-amber-500'
+                      }`}>
+                        {activeBlock.color?.toUpperCase() || 'PADRÃO'}
+                      </span>
+                      <span className="text-zinc-300">{activeBlock.start_time} até {activeBlock.end_time}</span>
+                    </div>
                   </div>
-                </div>
 
-                {activeBlock.description && (
-                  <p className="text-xs text-zinc-400 font-medium italic leading-relaxed pl-2 border-l-2 border-zinc-700 max-w-lg">
-                    {activeBlock.description}
+                  {activeBlock.description && (
+                    <p className="text-xs text-zinc-400 font-medium italic leading-relaxed pl-2 border-l-2 border-zinc-700 max-w-lg mb-2">
+                      {activeBlock.description}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="py-2 space-y-1">
+                  <span className="text-zinc-500 italic block font-mono text-xs">[ BLOCO FORA DA AGENDA ]</span>
+                  <p className="text-[11px] text-zinc-400 max-w-sm">
+                    Não há nenhum bloco de horário programado para este horário no dia de hoje. Ajuste a agenda ou desfrute de um recesso bem merecido!
                   </p>
+                </div>
+              )}
+            </div>
+
+            {/* INTEGRATED PENDÊNCIAS DO BLOCO INSIDE THE CARD */}
+            <div className="space-y-3 pt-3 border-t border-zinc-900">
+              <div className="flex justify-between items-center">
+                <span className="text-[9px] font-black tracking-widest text-zinc-400 uppercase flex items-center gap-1.5 font-mono">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> PENDÊNCIAS DO BLOCO ({activeBlockTodos.length})
+                </span>
+                <span className="text-[9px] text-zinc-500 uppercase font-mono tracking-widest hidden sm:inline">
+                  [ EXECUTANTE DE TAREFAS ]
+                </span>
+              </div>
+
+              {activeBlock && (
+                <form onSubmit={handleAddQuickTodo} className="flex gap-1.5">
+                  <input
+                    type="text"
+                    required
+                    maxLength={100}
+                    placeholder="Rápido: adicionar nova pendência..."
+                    value={quickTodoTitle}
+                    onChange={e => setQuickTodoTitle(e.target.value)}
+                    className="flex-1 bg-black text-[11px] p-2 border border-zinc-800 rounded focus:border-[var(--color-amber)] text-white focus:outline-none placeholder-zinc-650 font-mono h-8"
+                  />
+                  <button type="submit" className={`${primaryButtonStyle} h-8 text-[10px] px-3 py-1 flex items-center gap-1 cursor-pointer`}>
+                    <Plus className="w-3 h-3 shrink-0" /> INSERIR
+                  </button>
+                </form>
+              )}
+
+              <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                {!activeBlock ? (
+                  <div className="text-center py-4 border border-dashed border-zinc-900 rounded text-[10px] font-mono text-zinc-500 uppercase">
+                    Nenhum bloco ativo.
+                  </div>
+                ) : activeBlockTodos.length === 0 ? (
+                  <div className="text-center py-4 border border-dashed border-zinc-900 rounded text-[10px] font-mono text-zinc-500 uppercase">
+                    Nenhuma pendência neste bloco.
+                  </div>
+                ) : (
+                  activeBlockTodos.map((todo) => {
+                    const isActionFirst = nextAction?.id === todo.id;
+                    const associatedGroup = groups.find(g => g.id === todo.group_id);
+                    const associatedCat = categories.find(c => c.id === todo.category_id);
+
+                    return (
+                      <div
+                        key={todo.id}
+                        className={`p-2 rounded border border-zinc-900 bg-zinc-950/40 flex items-center justify-between gap-2.5 transition-all ${
+                          todo.completed ? 'opacity-60 bg-zinc-950/10' : ''
+                        } ${isActionFirst ? 'ring-1 ring-amber-500/25 border-amber-500/20' : ''}`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleUnifiedOrTodo(todo)}
+                            className={`transition-colors shrink-0 ${
+                              todo.completed ? 'text-emerald-400' : 'text-zinc-650 hover:text-white'
+                            }`}
+                            title={todo.completed ? 'Desmarcar' : 'Concluir'}
+                          >
+                            {todo.completed ? (
+                              <CheckSquare className="w-4 h-4" />
+                            ) : (
+                              <Square className="w-4 h-4" />
+                            )}
+                          </button>
+
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <span className={`text-[11px] font-mono break-words block leading-tight ${
+                              todo.completed ? 'line-through text-zinc-500' : 'text-zinc-200'
+                            }`}>
+                              {todo.title}
+                            </span>
+                            {(associatedGroup || associatedCat) && (
+                              <div className="flex flex-wrap gap-1">
+                                {associatedGroup && (
+                                  <span className="text-[7.5px] px-1 border border-zinc-900/60 rounded bg-zinc-900/40 text-zinc-500">
+                                    G: {associatedGroup.name}
+                                  </span>
+                                )}
+                                {associatedCat && (
+                                  <span className="text-[7.5px] px-1 border border-zinc-900/60 rounded bg-zinc-900/40 text-zinc-500">
+                                    C: {associatedCat.name}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          {todo.isExternal && (
+                            <span className="text-[7.5px] uppercase font-bold tracking-wider text-[#00e5ff] border border-[#00e5ff]/20 bg-[#00e5ff]/5 px-1 py-0.5 rounded">
+                              Cliente
+                            </span>
+                          )}
+                          {isActionFirst && !todo.completed && (
+                            <span className="text-[7.5px] uppercase font-black tracking-widest text-amber-500 border border-amber-500/20 bg-amber-500/5 px-1 py-0.5 rounded animate-pulse font-mono">
+                              Sugerida
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
-            ) : (
-              <div className="py-6 space-y-1">
-                <span className="text-zinc-500 italic block font-mono text-xs">[ BLOCO FORA DA AGENDA ]</span>
-                <p className="text-[11px] text-zinc-400 max-w-sm">
-                  Não há nenhum bloco de horário programado para este horário no dia de hoje. Ajuste a agenda ou desfrute de um recesso bem merecido!
-                </p>
-              </div>
-            )}
+            </div>
+
           </div>
 
-          <div className="pl-2 pt-4 border-t border-zinc-900 flex justify-between items-center text-[11px] font-mono mt-3">
+          <div className="pl-2 pt-3 border-t border-zinc-900 flex justify-between items-center text-[10px] font-mono mt-3">
             <span className="text-zinc-500">CONECTADO À RETRO_MATRIX</span>
             <button 
               onClick={() => { sounds.playButtonSwitch(); router.push('/weekly-planning'); }}
-              className={`hover:underline flex items-center gap-1 ${textStyle}`}
+              className={`hover:underline flex items-center gap-0.5 ${textStyle}`}
             >
-              Ir para Agenda <ChevronRight className="w-4 h-4" />
+              Ir para Agenda <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
@@ -898,115 +1009,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* SECTION 4: INTERACTIVE LIST OF INDIVIDUAL PENDÊNCIAS */}
-      {activeBlock && (
-        <div className={`border-2 p-5 rounded-xl ${borderStyle} bg-black/40 space-y-4`}>
-          <div className="flex justify-between items-center border-b border-zinc-850 pb-2">
-            <h3 className="text-xs font-black tracking-wider uppercase flex items-center gap-1.5 opacity-90 text-white">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" /> PENDÊNCIAS DO BLOCO DE HOJE ({activeBlockTodos.length})
-            </h3>
-            <span className="text-[9px] text-zinc-500 uppercase font-mono tracking-widest">
-              [ EXECUTANTE DE TAREFAS EM TEMPO REAL ]
-            </span>
-          </div>
-
-          {/* Todo insertion inline input */}
-          <form onSubmit={handleAddQuickTodo} className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              required
-              maxLength={100}
-              placeholder="Rápido: insira mais uma pendência neste bloco..."
-              value={quickTodoTitle}
-              onChange={e => setQuickTodoTitle(e.target.value)}
-              className="flex-1 bg-black text-xs p-2.5 border border-zinc-800 rounded focus:border-[var(--color-amber)] text-white focus:outline-none placeholder-zinc-650"
-            />
-            
-            <button type="submit" className={primaryButtonStyle}>
-              <Plus className="w-4 h-4 shrink-0" /> INSERIR
-            </button>
-          </form>
-
-          {/* List display */}
-          <div className="space-y-1.5">
-            {activeBlockTodos.length === 0 ? (
-              <div className="text-center py-10 border border-dashed border-zinc-900 rounded-lg text-xs font-mono text-zinc-500 uppercase">
-                Não há pendências programadas para o bloco ativo. Cadastre uma acima para iniciar!
-              </div>
-            ) : (
-              activeBlockTodos.map((todo) => {
-                const isActionFirst = nextAction?.id === todo.id;
-                const associatedGroup = groups.find(g => g.id === todo.group_id);
-                const associatedCat = categories.find(c => c.id === todo.category_id);
-
-                return (
-                  <div
-                    key={todo.id}
-                    className={`p-3 rounded border border-zinc-850 bg-zinc-950/65 flex items-center justify-between gap-3 transition-all ${
-                      todo.completed ? 'opacity-60 bg-zinc-950/20' : ''
-                    } ${isActionFirst ? 'ring-1 ring-amber-500/35 border-amber-500/25' : ''}`}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleUnifiedOrTodo(todo)}
-                        className={`transition-colors shrink-0 ${
-                          todo.completed ? 'text-emerald-400' : 'text-zinc-650 hover:text-white'
-                        }`}
-                        title={todo.completed ? 'Desmarcar' : 'Concluir'}
-                      >
-                        {todo.completed ? (
-                          <CheckSquare className="w-4.5 h-4.5" />
-                        ) : (
-                          <Square className="w-4.5 h-4.5" />
-                        )}
-                      </button>
-
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <span className={`text-xs font-mono break-words block ${
-                          todo.completed ? 'line-through text-zinc-500' : 'text-zinc-200 font-medium'
-                        }`}>
-                          {todo.title}
-                        </span>
-
-                        {/* Classification labels tags */}
-                        {(associatedGroup || associatedCat) && (
-                          <div className="flex flex-wrap gap-1.5 pt-0.5">
-                            {associatedGroup && (
-                              <span className="text-[8px] px-1.5 border border-zinc-800 rounded bg-zinc-900/60 text-zinc-500">
-                                G: {associatedGroup.name}
-                              </span>
-                            )}
-                            {associatedCat && (
-                              <span className="text-[8px] px-1.5 border border-zinc-800 rounded bg-zinc-900/60 text-zinc-500">
-                                C: {associatedCat.name}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {todo.isExternal && (
-                        <span className="text-[8px] uppercase font-bold tracking-wider text-[#00e5ff] border border-[#00e5ff]/30 bg-[#00e5ff]/5 px-1.5 py-0.5 rounded">
-                          Cliente
-                        </span>
-                      )}
-
-                      {isActionFirst && !todo.completed && (
-                        <span className="text-[8px] shrink-0 uppercase font-black tracking-widest text-amber-500 border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 rounded animate-pulse">
-                          Sugerida
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
+      {/* SECTION 4 HAS BEEN MERGED IMMEDIATELY UNDER THE CURRENT ACTIVE BLOCK COCKPIT */}
 
     {/* ========================================================= */}
       {/* SECTION 5: ACTIVE PLANNING TODOS (IMACULADAS / PREPARADAS) */}
