@@ -1,9 +1,11 @@
 import { create } from 'zustand';
-import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod, TaskCategory, WeeklyPlan, WeeklyPlanTopic, AgendaBlock, AgendaTodo } from '@/lib/db';
+import { db, Task, PomodoroPreset, DailyStatistics, Settings, SystemTerminalLog, TaskPeriod, TaskCategory, WeeklyPlan, WeeklyPlanTopic, AgendaBlock, AgendaTodo, PlanningTodo, UnifiedTask } from '@/lib/db';
 import { sounds } from '@/lib/sounds';
 
 interface ProductivityState {
   tasks: Task[];
+  unifiedTasks: UnifiedTask[];
+  externalSources: any[];
   presets: PomodoroPreset[];
   periods: TaskPeriod[];
   categories: TaskCategory[];
@@ -11,6 +13,7 @@ interface ProductivityState {
   weeklyPlanTopics: WeeklyPlanTopic[];
   agendaBlocks: AgendaBlock[];
   agendaTodos: AgendaTodo[];
+  planningTodos: PlanningTodo[];
   stats: DailyStatistics | null;
   settings: Settings;
   terminalLogs: SystemTerminalLog[];
@@ -44,6 +47,8 @@ interface ProductivityState {
 
 export const useProductivityStore = create<ProductivityState>((set, get) => ({
   tasks: [],
+  unifiedTasks: [],
+  externalSources: [],
   presets: [],
   periods: [],
   categories: [],
@@ -51,6 +56,7 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
   weeklyPlanTopics: [],
   agendaBlocks: [],
   agendaTodos: [],
+  planningTodos: [],
   stats: null,
   settings: {
     user_id: 'user-default',
@@ -78,6 +84,8 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
   refreshData: () => {
     set({
       tasks: db.getTasks(),
+      unifiedTasks: db.getUnifiedTasks(),
+      externalSources: db.getExternalSources(),
       presets: db.getPresets(),
       periods: db.getTaskPeriods(),
       categories: db.getCategories(),
@@ -85,6 +93,7 @@ export const useProductivityStore = create<ProductivityState>((set, get) => ({
       weeklyPlanTopics: db.getWeeklyPlanTopics(),
       agendaBlocks: db.getAgendaBlocks(),
       agendaTodos: db.getAgendaTodos(),
+      planningTodos: db.getPlanningTodos(),
       stats: db.getStats(),
       settings: db.getSettings(),
       terminalLogs: db.getLogs(),

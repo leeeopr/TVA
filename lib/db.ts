@@ -40,11 +40,20 @@ import {
   createAgendaTodo,
   updateAgendaTodo,
   deleteAgendaTodo,
+  getAgendaClosures,
+  getAgendaHistoryItems,
+  getPlanningTodos,
+  createPlanningTodo,
+  updatePlanningTodo,
+  deletePlanningTodo,
   AgendaBlock,
-  AgendaTodo
+  AgendaTodo,
+  AgendaClosure,
+  AgendaHistoryItem,
+  PlanningTodo
 } from './supabase/agenda';
 
-export type { AgendaBlock, AgendaTodo };
+export type { AgendaBlock, AgendaTodo, AgendaClosure, AgendaHistoryItem, PlanningTodo };
 
 // ==========================================
 // RETRO-FUTURISTIC TERMINAL DATABANK ADAPTER
@@ -177,6 +186,52 @@ export interface Task {
   period_color?: string;
 }
 
+export interface UnifiedTask {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  completed: boolean;
+  
+  group_id: string | null;
+  category_id: string | null;
+  block_id: string | null;
+  
+  source_type: 'local' | 'external' | 'project_issue';
+  source_id: string | null;
+  created_at: string;
+  updated_at: string;
+  
+  is_external: boolean;
+  external_source_name?: string | null;
+  original_external_id?: string | null;
+  
+  // Stage 7 Company Identity Profile Fields
+  company_name?: string | null;
+  company_color?: string | null;
+  company_icon?: string | null;
+  company_type?: string | null;
+  
+  // Prioritization & Deadline Fields
+  priority: number; // 1: Urgent, 2: High, 3: Medium, 4: Low
+  due_date: string | null;
+  
+  // Stage 8 Preparation Fields (Dual Coop)
+  external_project_id?: string | null;
+  external_project_name?: string | null;
+  external_phase_id?: string | null;
+  external_phase_name?: string | null;
+  external_kanban_column?: string | null;
+  
+  // UI mapping fields
+  group_name?: string;
+  group_color?: string;
+  group_color_hex?: string;
+  category_name?: string;
+  category_color_hex?: string;
+  sync_status?: 'synchronized' | 'pending' | 'failed';
+}
+
 export interface PomodoroPreset {
   id: string;
   user_id: string;
@@ -264,6 +319,11 @@ export class db {
   private static colorNameToId: Record<string, string> = {};
   private static colorIdToName: Record<string, string> = {};
   private static colorIdToHex: Record<string, string> = {};
+  private static isPlanningTableMissing: boolean = false;
+
+  static checkPlanningTableMissing(): boolean {
+    return this.isPlanningTableMissing;
+  }
 
   static isLoading(): boolean {
     return this.isPulling;
@@ -335,6 +395,10 @@ export class db {
   private static ramWeeklyPlanTopics: WeeklyPlanTopic[] = [];
   private static ramAgendaBlocks: AgendaBlock[] = [];
   private static ramAgendaTodos: AgendaTodo[] = [];
+  private static ramPlanningTodos: PlanningTodo[] = [];
+  private static ramExternalTasks: any[] = [];
+  private static ramExternalSources: any[] = [];
+  private static ramExternalSyncQueue: any[] = [];
 
   // Terminal logging
   static addLog(text: string, type: 'info' | 'success' | 'warning' | 'error' | 'system' = 'info') {
@@ -755,13 +819,68 @@ export class db {
 
       // 9. Agenda Blocks & Todos module synchronization
       try {
+        // Execute automatic weekly cycle check before fetching blocks & todos
+        try {
+          await this.checkAndRunWeeklyCycle();
+        } catch (cycleErr) {
+          console.warn("Skipping weekly cycle check during sync: tables might not exist yet.", cycleErr);
+        }
+
         const blocks = await getAgendaBlocks();
         this.ramAgendaBlocks = blocks;
         const todos = await getAgendaTodos();
         this.ramAgendaTodos = todos;
-        this.addLog(`CLOUD_SYNC: ${blocks.length} AGENDA BLOCKS AND ${todos.length} PENDING ITEMS SYNCHRONIZED.`, 'success');
+
+        // Fetch planning todos
+        try {
+          const ptodos = await getPlanningTodos();
+          this.ramPlanningTodos = ptodos;
+          this.isPlanningTableMissing = false;
+          this.addLog(`CLOUD_SYNC: ${blocks.length} AGENDA BLOCKS, ${todos.length} PENDING ITEMS, AND ${ptodos.length} PLANNING ITEMS SYNCHRONIZED.`, 'success');
+        } catch (ptodoErr: any) {
+          console.warn("Planning todos table might not exist yet:", ptodoErr);
+          if (ptodoErr.message === "planning_todos_table_not_exists" || ptodoErr.message?.includes("planning_todos")) {
+            this.isPlanningTableMissing = true;
+          }
+          this.addLog(`DB_WARN: TABELA 'planning_todos' NÃO DETECTADA. ADICIONE O SCHEMA SQL NAS CONFIGURAÇÕES.`, 'warning');
+          this.ramPlanningTodos = [];
+        }
       } catch (agendaErr) {
         console.warn("Skipped database loading of agenda; tables might not exist yet.", agendaErr);
+      }
+
+      // 10. Fetch external sources and tasks for unified operations (ETAPA 5)
+      try {
+        if (supabase) {
+          const { data: sourcesData, error: sourcesErr } = await supabase
+            .from('external_sources')
+            .select('*')
+            .eq('active', true);
+
+          if (!sourcesErr && sourcesData) {
+            this.ramExternalSources = sourcesData;
+          }
+
+          const { data: extTasksData, error: extTasksErr } = await supabase
+            .from('external_tasks')
+            .select('*')
+            .eq('active', true);
+
+          if (!extTasksErr && extTasksData) {
+            this.ramExternalTasks = extTasksData;
+            this.addLog(`CLOUD_SYNC: ${extTasksData.length} CLIENT PENDÊNCIAS INTEGRATED SECURELY.`, 'success');
+          }
+
+          const { data: queueData, error: queueErr } = await supabase
+            .from('external_sync_queue')
+            .select('*');
+
+          if (!queueErr && queueData) {
+            this.ramExternalSyncQueue = queueData;
+          }
+        }
+      } catch (extErr) {
+        console.warn("Skipped loading of external sources or tasks.", extErr);
       }
 
       this.triggerDataRefreshCallbacks();
@@ -1115,6 +1234,13 @@ export class db {
   }
 
   // ==========================================
+  // EXTERNAL SOURCES GETTER
+  // ==========================================
+  static getExternalSources(): any[] {
+    return this.ramExternalSources;
+  }
+
+  // ==========================================
   // TASKS CRUD
   // ==========================================
   static getTasks(): Task[] {
@@ -1151,6 +1277,302 @@ export class db {
         period_color: t.period_color || periodObj?.color || ''
       };
     }).sort((a, b) => a.position - b.position);
+  }
+
+  static getUnifiedTasks(): UnifiedTask[] {
+    const COLOR_NAME_TO_HEX: Record<string, string> = {
+      blue: '#60a5fa',
+      purple: '#c084fc',
+      green: '#34d399',
+      red: '#f87171',
+      yellow: '#fbbf24',
+      cyan: '#22d3ee',
+      orange: '#fb923c'
+    };
+
+    // 1. Get all local tasks
+    const localTasksUnified: UnifiedTask[] = this.getTasks().map(t => {
+      // Priority mapping: Urgent=1, Moderate=2, Low/others=3
+      let mappedPriority = 3;
+      if (t.urgency_level === 'urgent') mappedPriority = 1;
+      else if (t.urgency_level === 'moderate') mappedPriority = 2;
+
+      return {
+        id: t.id,
+        user_id: t.user_id,
+        title: t.title,
+        description: t.description,
+        completed: t.is_completed,
+        group_id: t.group_id,
+        category_id: t.category_id,
+        block_id: null,
+        source_type: 'local',
+        source_id: null,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+        is_external: false,
+        external_source_name: 'TVA',
+        original_external_id: null,
+        priority: mappedPriority,
+        due_date: t.due_date || null,
+        group_name: t.group_name,
+        group_color: t.group_color,
+        group_color_hex: t.group_color_hex,
+        category_name: t.category_name,
+        category_color_hex: t.category_color_hex
+      };
+    });
+
+    // 2. Get all external tasks
+    const externalTasksUnified: UnifiedTask[] = this.ramExternalTasks
+      .filter(et => et.active)
+      .map(et => {
+        const sourceObj = this.ramExternalSources.find(s => s.id === et.source_id);
+        const catObj = this.ramCategories.find(c => c.id === et.mapped_category_id);
+        const targetGroupId = et.mapped_group_id || catObj?.group_id;
+        const groupObj = this.ramGroups.find(g => g.id === targetGroupId);
+
+        const computedGroupColorName = groupObj?.color || 'blue';
+        const computedGroupColorHex = COLOR_NAME_TO_HEX[computedGroupColorName] || '#60a5fa';
+        const computedCategoryColorHex = catObj?.color ? COLOR_NAME_TO_HEX[catObj.color] : undefined;
+
+        // Determine sync status from queue
+        const queueItem = this.ramExternalSyncQueue.find(q => q.external_task_id === et.id);
+        let syncStatus: 'synchronized' | 'pending' | 'failed' = 'synchronized';
+        if (queueItem) {
+          if (queueItem.status === 'PENDING' || queueItem.status === 'PROCESSING') {
+            syncStatus = 'pending';
+          } else if (queueItem.status === 'FAILED') {
+            syncStatus = 'failed';
+          }
+        }
+
+        return {
+          id: et.id,
+          user_id: et.user_id,
+          title: et.title,
+          description: et.description,
+          completed: et.completed,
+          group_id: et.mapped_group_id || null,
+          category_id: et.mapped_category_id || null,
+          block_id: et.mapped_block_id || null,
+          source_type: 'external',
+          source_id: et.source_id,
+          created_at: et.created_at,
+          updated_at: et.updated_at,
+          is_external: true,
+          external_source_name: sourceObj?.name || 'Cliente Externo',
+          original_external_id: et.external_id,
+          
+          // Stage 7 Company Identity Profile mapping
+          company_name: sourceObj?.company_name || sourceObj?.name || 'Cliente Externo',
+          company_color: sourceObj?.company_color || '#00e5ff',
+          company_icon: sourceObj?.company_icon || 'Building',
+          company_type: sourceObj?.company_type || 'OUTROS',
+          
+          // Priorities and Deadlines
+          priority: et.priority !== undefined && et.priority !== null ? Number(et.priority) : 3,
+          due_date: et.due_date || null,
+          
+          // Stage 8 Preparation Mapping (Dual Coop)
+          external_project_id: et.external_project_id || null,
+          external_project_name: et.external_project_name || null,
+          external_phase_id: et.external_phase_id || null,
+          external_phase_name: et.external_phase_name || null,
+          external_kanban_column: et.external_kanban_column || null,
+
+          group_name: groupObj?.name || 'Geral',
+          group_color: computedGroupColorName,
+          group_color_hex: computedGroupColorHex,
+          category_name: catObj?.name || '',
+          category_color_hex: computedCategoryColorHex,
+          sync_status: syncStatus
+        };
+      });
+
+    // 3. Get all project issues (Central de Operações unificadora - local)
+    const projectIssuesUnified: UnifiedTask[] = this.ramIssues.map(issue => {
+      const projObj = this.ramProjects.find(p => p.id === issue.project_id);
+      return {
+        id: issue.id,
+        user_id: issue.user_id,
+        title: `[PROJETO] ${issue.title}`,
+        description: issue.description,
+        completed: issue.is_completed,
+        group_id: null,
+        category_id: null,
+        block_id: null,
+        source_type: 'project_issue',
+        source_id: issue.project_id,
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        is_external: false,
+        external_source_name: projObj ? `PROJETO: ${projObj.name}` : 'Projeto Local',
+        original_external_id: null,
+        priority: 2, // Default priority = High (2) for project issues
+        due_date: null,
+        
+        company_name: projObj?.name || 'Projeto',
+        company_color: '#c084fc', // purple default for projects
+        company_icon: 'FolderGit2'
+      };
+    });
+
+    return [...localTasksUnified, ...externalTasksUnified, ...projectIssuesUnified];
+  }
+
+  static async toggleTaskCompletion(id: string, sourceType: 'local' | 'external' | 'project_issue', completed: boolean): Promise<any> {
+    if (sourceType === 'local') {
+      return await this.updateTask(id, { is_completed: completed });
+    } else if (sourceType === 'project_issue') {
+      return await this.updateProjectIssue(id, { is_completed: completed });
+    } else {
+      const previousExternalTasks = [...this.ramExternalTasks];
+      this.ramExternalTasks = this.ramExternalTasks.map(et => {
+        if (et.id === id) {
+          return { ...et, completed, updated_at: new Date().toISOString() };
+        }
+        return et;
+      });
+
+      if (supabase && this.cachedUserId !== 'user-default') {
+        try {
+          const { error } = await supabase
+            .from('external_tasks')
+            .update({ completed, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+          if (error) throw error;
+          this.addLog(`AGREGADOR: Pendência externa atualizada para ${completed ? 'CONCLUÍDA' : 'EM ANDAMENTO'}.`, 'success');
+
+          // Propagar alteração de status via sincronizador reverso bidirecional
+          fetch('/api/sync-external/push', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              operation: 'UPDATE',
+              taskId: id,
+              completed
+            })
+          }).then(async (res) => {
+            const data = await res.json();
+            if (data?.success) {
+              this.addLog(`RECIPROCIDADE: Sincronia de status da tarefa completada com sucesso.`, 'success');
+            } else {
+              this.addLog(`RECIPROCIDADE: Origem offline ou travada. Salvando sinal na fila de contingência.`, 'warning');
+            }
+            this.pullFromSupabase();
+          }).catch(err => {
+            this.addLog(`RECIPROCIDADE_ERR: Erro de transmissão do sinal push: ${err.message}`, 'error');
+          });
+
+        } catch (err: any) {
+          this.ramExternalTasks = previousExternalTasks;
+          this.addLog(`AGREGADOR_ERR: Falha ao atualizar pendência externa: ${err.message}`, 'error');
+          throw err;
+        }
+      }
+
+      this.triggerDataRefreshCallbacks();
+      return this.getUnifiedTasks();
+    }
+  }
+
+  static async updateExternalTask(id: string, updates: { title?: string; description?: string }): Promise<any> {
+    const previousExternalTasks = [...this.ramExternalTasks];
+    this.ramExternalTasks = this.ramExternalTasks.map(et => {
+      if (et.id === id) {
+        return { ...et, ...updates, updated_at: new Date().toISOString() };
+      }
+      return et;
+    });
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        const { error } = await supabase
+          .from('external_tasks')
+          .update({
+            ...(updates.title !== undefined ? { title: updates.title } : {}),
+            ...(updates.description !== undefined ? { description: updates.description } : {}),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', id);
+
+        if (error) throw error;
+        this.addLog(`AGREGADOR: Pendência externa atualizada localmente. Propagando...`, 'success');
+
+        // Propagate updates to remote database
+        fetch('/api/sync-external/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            operation: 'UPDATE',
+            taskId: id,
+            title: updates.title,
+            description: updates.description
+          })
+        }).then(async (res) => {
+          const data = await res.json();
+          if (data?.success) {
+            this.addLog(`RECIPROCIDADE: Atualização de texto propagada com sucesso à fonte.`, 'success');
+          } else {
+            this.addLog(`RECIPROCIDADE: Falha ao propagar texto na origem. Salvo na fila.`, 'warning');
+          }
+          this.pullFromSupabase();
+        }).catch(err => {
+          this.addLog(`RECIPROCIDADE_ERR: Falha de envio do push de texto: ${err.message}`, 'error');
+        });
+
+      } catch (err: any) {
+        this.ramExternalTasks = previousExternalTasks;
+        this.addLog(`AGREGADOR_ERR: Falha ao editar pendência externa: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.getUnifiedTasks();
+  }
+
+  static async deleteExternalTask(id: string, deleteRemote: boolean): Promise<any> {
+    const previousExternalTasks = [...this.ramExternalTasks];
+    this.ramExternalTasks = this.ramExternalTasks.filter(et => et.id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        this.addLog(`AGREGADOR: Solicitando deleção de pendência externa...`, 'info');
+
+        // Execute deletion bidirectionally through the server push API
+        const res = await fetch('/api/sync-external/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            operation: 'DELETE',
+            taskId: id,
+            deleteRemote
+          })
+        });
+
+        const data = await res.json();
+        if (data?.success) {
+          this.addLog(`AGREGADOR: Deleção bidirecional realizada com sucesso: ${data.message}`, 'success');
+        } else {
+          // If fail, we don't bring back the RAM task because local database deletion or Remote deletion was handled inside api route
+          this.addLog(`AGREGADOR: Erro ao realizar deleção bidirecional: ${data.error || 'Erro desconhecido'}`, 'error');
+        }
+
+        // Always pull fresh state from database to represent final deleted state
+        await this.pullFromSupabase();
+
+      } catch (err: any) {
+        this.ramExternalTasks = previousExternalTasks;
+        this.addLog(`AGREGADOR_ERR: Falha de comunicação de deleção: ${err.message}`, 'error');
+        throw err;
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.getUnifiedTasks();
   }
 
   static async saveTask(
@@ -1845,7 +2267,7 @@ export class db {
     return this.ramAgendaTodos;
   }
 
-  static async saveAgendaBlock(dayOfWeek: number, startTime: string, endTime: string, name: string, color?: string): Promise<AgendaBlock> {
+  static async saveAgendaBlock(dayOfWeek: number, startTime: string, endTime: string, name: string, color?: string, description?: string): Promise<AgendaBlock> {
     const tempId = 'block-' + Math.random().toString(36).substr(2, 9);
     const newBlock: AgendaBlock = {
       id: tempId,
@@ -1855,6 +2277,7 @@ export class db {
       end_time: endTime,
       name,
       color: color || 'blue',
+      description: description || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -1864,7 +2287,7 @@ export class db {
 
     if (supabase && this.cachedUserId !== 'user-default') {
       try {
-        const created = await createAgendaBlock({ day_of_week: dayOfWeek, start_time: startTime, end_time: endTime, name, color });
+        const created = await createAgendaBlock({ day_of_week: dayOfWeek, start_time: startTime, end_time: endTime, name, color, description });
         this.ramAgendaBlocks = this.ramAgendaBlocks.map(b => b.id === tempId ? created : b);
         this.addLog(`CLOUD_WRITE_SUCCESS: AGENDA BLOCK PERSISTED TO SUPABASE`, 'success');
       } catch (err: any) {
@@ -1920,7 +2343,8 @@ export class db {
       block.start_time,
       block.end_time,
       `${block.name} (Cópia)`,
-      block.color || undefined
+      block.color || undefined,
+      block.description || undefined
     );
 
     for (const todo of blockTodos) {
@@ -1928,6 +2352,89 @@ export class db {
     }
 
     return duplicatedBlock;
+  }
+
+  static async copyDayAgenda(fromDay: number, targetDays: number[], mode: 'merge' | 'replace'): Promise<void> {
+    if (!supabase || this.cachedUserId === 'user-default') {
+      const sourceBlocks = this.ramAgendaBlocks.filter(b => b.day_of_week === fromDay);
+      for (const targetDay of targetDays) {
+        if (mode === 'replace') {
+          const blockIdsToDelete = this.ramAgendaBlocks
+            .filter(b => b.day_of_week === targetDay)
+            .map(b => b.id);
+          this.ramAgendaTodos = this.ramAgendaTodos.filter(t => !blockIdsToDelete.includes(t.block_id));
+          this.ramAgendaBlocks = this.ramAgendaBlocks.filter(b => b.day_of_week !== targetDay);
+        }
+        for (const block of sourceBlocks) {
+          const tempId = 'block-' + Math.random().toString(36).substr(2, 9);
+          this.ramAgendaBlocks.push({
+            ...block,
+            id: tempId,
+            day_of_week: targetDay,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        }
+      }
+      this.triggerDataRefreshCallbacks();
+      return;
+    }
+
+    const sourceBlocks = this.ramAgendaBlocks.filter(b => b.day_of_week === fromDay);
+    if (sourceBlocks.length === 0) {
+      this.addLog(`COPY_DAY_WARN: NO BLOCKS TO COPY FROM DAY ${fromDay}`, 'warning');
+      return;
+    }
+
+    try {
+      this.addLog(`COPY_DAY_START: COPYING ${sourceBlocks.length} BLOCKS FROM DAY ${fromDay}`, 'system');
+
+      if (mode === 'replace') {
+        const { error: deleteErr } = await supabase
+          .from('agenda_blocks')
+          .delete()
+          .eq('user_id', this.cachedUserId)
+          .in('day_of_week', targetDays);
+
+        if (deleteErr) {
+          throw new Error(`Erro ao deletar blocos anteriores: ${deleteErr.message}`);
+        }
+        this.addLog(`COPY_DAY_WIP: OLD BLOCKS REPLACED ON TARGET DAYS`, 'success');
+      }
+
+      const payloads: any[] = [];
+      for (const targetDay of targetDays) {
+        for (const block of sourceBlocks) {
+          payloads.push({
+            user_id: this.cachedUserId,
+            day_of_week: targetDay,
+            start_time: block.start_time,
+            end_time: block.end_time,
+            name: block.name,
+            color: block.color || 'blue',
+            description: block.description || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        }
+      }
+
+      if (payloads.length > 0) {
+        const { error: insertErr } = await supabase
+          .from('agenda_blocks')
+          .insert(payloads);
+
+        if (insertErr) {
+          throw new Error(`Erro ao inserir novos blocos: ${insertErr.message}`);
+        }
+        this.addLog(`COPY_DAY_SUCCESS: ALL BLOCKS DUPLICATED ON TARGET DAYS`, 'success');
+      }
+
+      await this.pullFromSupabase();
+    } catch (err: any) {
+      this.addLog(`COPY_DAY_ERR: FAILED TO COPY DAY AGENDA: ${err.message}`, 'error');
+      throw err;
+    }
   }
 
   static async saveAgendaTodo(blockId: string, title: string, groupId?: string | null, categoryId?: string | null): Promise<AgendaTodo> {
@@ -1993,6 +2500,95 @@ export class db {
     }
     this.triggerDataRefreshCallbacks();
     return this.ramAgendaTodos;
+  }
+
+  // ==========================================
+  // PLANNING PACK & PLANNING TODOS WRAPPERS
+  // ==========================================
+
+  static getPlanningTodos(): PlanningTodo[] {
+    return this.ramPlanningTodos;
+  }
+
+  static async createPlanningTodo(todo: Omit<PlanningTodo, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<PlanningTodo[]> {
+    const tempId = 'plan-' + Math.random().toString(36).substr(2, 9);
+    const mockTodo: PlanningTodo = {
+      id: tempId,
+      user_id: this.cachedUserId,
+      title: todo.title,
+      days_of_week: todo.days_of_week,
+      block_name: todo.block_name,
+      requires_link: todo.requires_link,
+      link: todo.link || null,
+      active: todo.active ?? true,
+      completed: todo.completed ?? false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    this.ramPlanningTodos.push(mockTodo);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        const created = await createPlanningTodo(todo);
+        this.ramPlanningTodos = this.ramPlanningTodos.map(t => t.id === tempId ? created : t);
+        this.isPlanningTableMissing = false;
+        this.addLog(`PLANNING_SYNC: NEW ITEM RECORDED SUCCESS IN CLOUD`, 'success');
+      } catch (err: any) {
+        if (err.message === "planning_todos_table_not_exists" || err.message?.includes("planning_todos") || err.message?.includes("does not exist") || err.message?.includes("completed") || err.message?.includes("column")) {
+          this.isPlanningTableMissing = true;
+        }
+        this.addLog(`PLANNING_SYNC_ERR: CLOUD CREATE FAILED: ${err.message}`, 'error');
+        // Remove from ram cache as it failed
+        this.ramPlanningTodos = this.ramPlanningTodos.filter(t => t.id !== tempId);
+        throw err;
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.ramPlanningTodos;
+  }
+
+  static async updatePlanningTodo(id: string, updates: Partial<Omit<PlanningTodo, 'id' | 'user_id' | 'created_at' | 'updated_at'>>): Promise<PlanningTodo[]> {
+    this.ramPlanningTodos = this.ramPlanningTodos.map(t => 
+      t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t
+    );
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await updatePlanningTodo(id, updates);
+        this.isPlanningTableMissing = false;
+        this.addLog(`PLANNING_SYNC: ITEM MODIFIED SUCCESS IN CLOUD`, 'success');
+      } catch (err: any) {
+        if (err.message === "planning_todos_table_not_exists" || err.message?.includes("planning_todos") || err.message?.includes("does not exist") || err.message?.includes("completed") || err.message?.includes("column")) {
+          this.isPlanningTableMissing = true;
+        }
+        this.addLog(`PLANNING_SYNC_ERR: CLOUD UPDATE FAILED: ${err.message}`, 'error');
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.ramPlanningTodos;
+  }
+
+  static async deletePlanningTodo(id: string): Promise<PlanningTodo[]> {
+    this.ramPlanningTodos = this.ramPlanningTodos.filter(t => t.id !== id);
+
+    if (supabase && this.cachedUserId !== 'user-default') {
+      try {
+        await deletePlanningTodo(id);
+        this.isPlanningTableMissing = false;
+        this.addLog(`PLANNING_SYNC: ITEM DELETED SUCCESS FROM CLOUD`, 'success');
+      } catch (err: any) {
+        if (err.message === "planning_todos_table_not_exists" || err.message?.includes("planning_todos") || err.message?.includes("does not exist") || err.message?.includes("completed") || err.message?.includes("column")) {
+          this.isPlanningTableMissing = true;
+        }
+        this.addLog(`PLANNING_SYNC_ERR: CLOUD DELETE FAILED: ${err.message}`, 'error');
+      }
+    }
+
+    this.triggerDataRefreshCallbacks();
+    return this.ramPlanningTodos;
   }
 
   // ==========================================
@@ -2100,6 +2696,164 @@ export class db {
     } catch (err) {
       console.error("fetchTodaysCategoriesWithTasks failed, searching on fallback:", err);
       return [];
+    }
+  }
+
+  // ==========================================
+  // HISTORIC AGENDA CYCLE METHODS
+  // ==========================================
+
+  static getISOWeekString(date: Date = new Date()): string {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+  }
+
+  static async getAgendaClosures(): Promise<AgendaClosure[]> {
+    if (!supabase || this.cachedUserId === 'user-default') return [];
+    try {
+      return await getAgendaClosures();
+    } catch (err: any) {
+      this.addLog(`DB_ERR: BUSCA DE FECHAMENTOS: ${err.message}`, 'error');
+      return [];
+    }
+  }
+
+  static async getAgendaHistoryItems(weekCode?: string): Promise<AgendaHistoryItem[]> {
+    if (!supabase || this.cachedUserId === 'user-default') return [];
+    try {
+      return await getAgendaHistoryItems(weekCode);
+    } catch (err: any) {
+      this.addLog(`DB_ERR: BUSCA DE HISTÓRICO: ${err.message}`, 'error');
+      return [];
+    }
+  }
+
+  static async checkAndRunWeeklyCycle(): Promise<void> {
+    if (!supabase || this.cachedUserId === 'user-default') return;
+
+    try {
+      const currentWeekCode = this.getISOWeekString(new Date());
+      const now = new Date();
+      const prevWeekDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const prevWeekCode = this.getISOWeekString(prevWeekDate);
+
+      this.addLog(`WEEKLY_CYCLE: VALIDANDO PERÍODO ATIVO [${currentWeekCode}], ANTERIOR [${prevWeekCode}]`, 'info');
+
+      const closures = await getAgendaClosures();
+      const latestClosure = closures && closures.length > 0 ? closures[0] : null;
+
+      if (!latestClosure) {
+        this.addLog(`WEEKLY_CYCLE: NENHUM REGISTRO DE FECHAMENTO ENCONTRADO. CRIANDO MARCADOR DE BASE [${prevWeekCode}]...`, 'system');
+        
+        const closurePayload = {
+          user_id: this.cachedUserId,
+          week_code: prevWeekCode,
+          closed_at: new Date().toISOString()
+        };
+
+        const { error: insertErr } = await supabase
+          .from('agenda_closures')
+          .insert(closurePayload);
+
+        if (insertErr) {
+          console.error("Error writing initial week closure:", insertErr);
+          throw insertErr;
+        }
+
+        this.addLog(`WEEKLY_CYCLE: REGISTRO DE BASE GRAVADO COM SUCESSO.`, 'success');
+        return;
+      }
+
+      const lastClosedWeek = latestClosure.week_code;
+
+      if (lastClosedWeek === prevWeekCode || lastClosedWeek === currentWeekCode) {
+        this.addLog(`WEEKLY_CYCLE: AGENDA UP-TO-DATE. ENVELOPE ESTÁVEL SUCESSO.`, 'info');
+        return;
+      }
+
+      this.addLog(`WEEKLY_CYCLE: TRANSIÇÃO DETECTADA! EXECUTANDO FECHAMENTO AUTOMÁTICO DE [${prevWeekCode}]...`, 'warning');
+
+      const blocks = await getAgendaBlocks();
+      const todos = await getAgendaTodos();
+
+      if (todos.length === 0) {
+        const { error: stampErr } = await supabase
+          .from('agenda_closures')
+          .insert({
+            user_id: this.cachedUserId,
+            week_code: prevWeekCode,
+            closed_at: new Date().toISOString()
+          });
+
+        if (stampErr) throw stampErr;
+        this.addLog(`WEEKLY_CYCLE: SEMANA ANTERIOR [${prevWeekCode}] ENCERRADA SEM ITENS.`, 'info');
+        return;
+      }
+
+      const historyPayload = todos.map(todo => {
+        const parentBlock = blocks.find(b => b.id === todo.block_id);
+        return {
+          user_id: this.cachedUserId,
+          week_code: prevWeekCode,
+          block_name: parentBlock?.name || 'Bloco Desconhecido',
+          block_color: parentBlock?.color || 'blue',
+          todo_title: todo.title,
+          completed: todo.completed,
+          day_of_week: parentBlock?.day_of_week ?? 0,
+          created_at: new Date().toISOString()
+        };
+      });
+
+      const { error: insertHistErr } = await supabase
+        .from('agenda_history_items')
+        .insert(historyPayload);
+
+      if (insertHistErr) {
+        this.addLog(`WEEKLY_CYCLE: FALHA AO INSERIR REGISTROS HISTÓRICOS: ${insertHistErr.message}`, 'error');
+        throw insertHistErr;
+      }
+
+      const completedIds = todos.filter(t => t.completed).map(t => t.id);
+
+      if (completedIds.length > 0) {
+        const { error: deleteTodosErr } = await supabase
+          .from('agenda_todos')
+          .delete()
+          .in('id', completedIds);
+
+        if (deleteTodosErr) {
+          this.addLog(`WEEKLY_CYCLE: FALHA AO LIMPAR ITENS CONCLUÍDOS: ${deleteTodosErr.message}`, 'error');
+          throw deleteTodosErr;
+        }
+
+        this.addLog(`WEEKLY_CYCLE: ${completedIds.length} PENDÊNCIAS CONCLUÍDAS ARQUIVADAS.`, 'success');
+      }
+
+      const { error: finalClosureErr } = await supabase
+        .from('agenda_closures')
+        .insert({
+          user_id: this.cachedUserId,
+          week_code: prevWeekCode,
+          closed_at: new Date().toISOString()
+        });
+
+      if (finalClosureErr) {
+        this.addLog(`WEEKLY_CYCLE: FALHA AO REGISTRAR SELO DE FECHAMENTO: ${finalClosureErr.message}`, 'error');
+        throw finalClosureErr;
+      }
+
+      this.addLog(`WEEKLY_CYCLE: FECHAMENTO SUCESSO [${prevWeekCode}]. CORRETAMENTE NA SEMANA ATIVA [${currentWeekCode}].`, 'success');
+    } catch (cycleErr: any) {
+      if (cycleErr?.message?.includes('agenda_closures') || cycleErr?.message?.includes('agenda_history_items')) {
+        this.addLog(`WEEKLY_CYCLE_FAIL: Tabelas não encontradas no Supabase. Execute o assistente de SQL.`, 'error');
+      } else {
+        this.addLog(`WEEKLY_CYCLE_FAIL: FALHA NO SELETOR CRONOLÓGICO: ${cycleErr?.message || cycleErr}`, 'error');
+      }
+      throw cycleErr;
     }
   }
 }

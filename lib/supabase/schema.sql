@@ -583,3 +583,141 @@ CREATE INDEX IF NOT EXISTS idx_weekly_plan_topics_category_id ON public.weekly_p
 CREATE INDEX IF NOT EXISTS idx_weekly_plan_topics_user_id ON public.weekly_plan_topics(user_id);
 
 
+-- =========================================================
+-- 15. EXTERNAL MODULE (MULTIPLE SOURCES SYNC)
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS public.external_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    secret_alias TEXT NOT NULL DEFAULT '',
+    active BOOLEAN DEFAULT TRUE NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+    last_synced_at TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+    company_name TEXT,
+    company_color TEXT,
+    company_icon TEXT,
+    company_type TEXT,
+    description TEXT,
+    active_projects_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- MIGRATION: Ensure existing DB contains Stage 7 columns & Missing Core Columns
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '' NOT NULL;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS secret_alias TEXT DEFAULT '' NOT NULL;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE NOT NULL;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb NOT NULL;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMP WITH TIME ZONE DEFAULT NULL;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS company_name TEXT;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS company_color TEXT;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS company_icon TEXT;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS company_type TEXT;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.external_sources ADD COLUMN IF NOT EXISTS active_projects_count INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS public.external_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    source_id UUID NOT NULL REFERENCES public.external_sources(id) ON DELETE CASCADE,
+    source_name TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    completed BOOLEAN DEFAULT FALSE NOT NULL,
+    active BOOLEAN DEFAULT TRUE NOT NULL,
+    metadata JSONB DEFAULT '{}'::jsonb NOT NULL,
+    mapped_group_id UUID,
+    mapped_category_id UUID,
+    mapped_block_id UUID,
+    priority INTEGER DEFAULT 3, -- 1: Urgent, 2: High, 3: Medium, 4: Low
+    due_date TIMESTAMP WITH TIME ZONE,
+    
+    -- STAGE 8 PREPARATION: External projects structure (Rule 7)
+    external_project_id TEXT,
+    external_project_name TEXT,
+    external_phase_id TEXT,
+    external_phase_name TEXT,
+    external_kanban_column TEXT,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    CONSTRAINT unique_external_task_source_key UNIQUE (source_id, external_id)
+);
+
+-- MIGRATION: Ensure existing DB contains Stage 7 & 8 columns, and Sync columns
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS source_name TEXT DEFAULT '' NOT NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS external_id TEXT DEFAULT '' NOT NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE NOT NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb NOT NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS mapped_group_id UUID REFERENCES public.task_groups(id) ON DELETE SET NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS mapped_category_id UUID REFERENCES public.task_categories(id) ON DELETE SET NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS mapped_block_id UUID REFERENCES public.agenda_blocks(id) ON DELETE SET NULL;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS priority INTEGER DEFAULT 3;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS due_date TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS external_project_id TEXT;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS external_project_name TEXT;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS external_phase_id TEXT;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS external_phase_name TEXT;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS external_kanban_column TEXT;
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS last_sync_direction TEXT DEFAULT 'PULL';
+ALTER TABLE public.external_tasks ADD COLUMN IF NOT EXISTS last_sync_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW());
+
+-- Safeguard for the unique constraint on external_tasks (since the table might have existed previously without it)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'unique_external_task_source_key'
+    ) THEN
+        ALTER TABLE public.external_tasks ADD CONSTRAINT unique_external_task_source_key UNIQUE (source_id, external_id);
+    END IF;
+END $$;
+
+-- Enable RLS
+ALTER TABLE public.external_sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.external_tasks ENABLE ROW LEVEL SECURITY;
+
+-- =========================================================
+-- 16. EXTERNAL SOURCE MAPPINGS (ETAPA 4)
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS public.external_source_mappings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    source_id UUID NOT NULL REFERENCES public.external_sources(id) ON DELETE CASCADE,
+    target_group_id UUID NOT NULL REFERENCES public.task_groups(id) ON DELETE CASCADE,
+    target_category_id UUID NOT NULL REFERENCES public.task_categories(id) ON DELETE CASCADE,
+    default_block_id UUID REFERENCES public.agenda_blocks(id) ON DELETE SET NULL,
+    active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+    CONSTRAINT unique_mappings_per_source UNIQUE (source_id)
+);
+
+ALTER TABLE public.external_source_mappings ENABLE ROW LEVEL SECURITY;
+
+-- Policies
+DROP POLICY IF EXISTS "Users can manage their own external sources" ON public.external_sources;
+CREATE POLICY "Users can manage their own external sources" ON public.external_sources
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own external tasks" ON public.external_tasks;
+CREATE POLICY "Users can manage their own external tasks" ON public.external_tasks
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can manage their own external mappings" ON public.external_source_mappings;
+CREATE POLICY "Users can manage their own external mappings" ON public.external_source_mappings
+    FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_external_sources_user_id ON public.external_sources(user_id);
+CREATE INDEX IF NOT EXISTS idx_external_tasks_user_id ON public.external_tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_external_tasks_source_id ON public.external_tasks(source_id);
+CREATE INDEX IF NOT EXISTS idx_external_tasks_union ON public.external_tasks(source_id, external_id);
+CREATE INDEX IF NOT EXISTS idx_external_mappings_user_id ON public.external_source_mappings(user_id);
+CREATE INDEX IF NOT EXISTS idx_external_mappings_source_id ON public.external_source_mappings(source_id);
+
+
+
